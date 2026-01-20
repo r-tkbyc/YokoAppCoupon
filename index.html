@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.0.8 - 2026-01-20 -->
-  <meta name="app-version" content="v1.0.8">
+  <!-- Text Formatter v1.0.9 - 2026-01-20 -->
+  <meta name="app-version" content="v1.0.9">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -23,10 +23,6 @@
 
   .row { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
   @media (min-width: 960px) { .row { grid-template-columns: 1fr 1fr; } }
-
-  /* 本文用：常に縦並び */
-  .row-vertical { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
-  @media (min-width: 960px) { .row-vertical { grid-template-columns: 1fr; } }
 
   .panel { background: #0b121a; border: 1px solid #22303e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   .panel h2 { margin: 0 0 2px; font-size: 12px; font-weight: 700; color: #9fb3c8; }
@@ -132,17 +128,16 @@
   .ver-badge { font-size:10px; background:#3d3d3d; border:1px solid #565656; color:#eaeaea;
     border-radius:2px; padding:0 6px; line-height:18px; height:18px; white-space:nowrap; }
 
-  /* 店舗ラジオ：チェック時の色 */
+  /* 店舗ラジオ：チェック時の色（残っていてもOK：将来の名残） */
   .store-group input[type="radio"]{
-    accent-color: #2a81fb; /* 好きな色に変更可 */
+    accent-color: #2a81fb;
   }
 
-  /* === NEW: 1行3列（先着人数/表示グループ/カテゴリ） === */
+  /* === NEW: タイトル下に 1行3列（先着人数/表示グループ/カテゴリ） === */
   .triple-row{
     display:grid;
     grid-template-columns: 1fr;
     gap: var(--gap);
-    padding: 0; /* set内で詰める */
   }
   @media (min-width: 960px){
     .triple-row{
@@ -150,7 +145,7 @@
     }
   }
 
-  /* select / input を既存のUnity風に合わせる */
+  /* input/select を既存のUnity風に合わせる（textareaとは別） */
   input, select{
     width: 100%;
     height: var(--btn-h);
@@ -177,7 +172,6 @@
   input[type="number"]{ appearance: textfield; }
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
-
   </style>
 </head>
 
@@ -188,17 +182,35 @@
   </header>
 
   <main>
-    <!-- タイトル セット -->
+    <!-- タイトル セット（ここは今のまま：toCMS / 変換 は拡張が挿す想定） -->
     <section class="set" data-set="title">
       <div class="set-head">
         <h2 class="set-title">タイトル</h2>
         <div class="actions">
+          <!-- ここに拡張が toCMS を挿入する想定 -->
           <button class="btn-convert primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
-          <button class="btn-copy" title="コピー">コピー</button>
         </div>
       </div>
 
-      <!-- NEW: タイトルの下 1行3列 -->
+      <div class="row">
+        <section class="panel">
+          <h2>入力</h2>
+          <textarea class="input" placeholder="ここにテキストをペースト"></textarea>
+        </section>
+        <section class="panel">
+          <h2>出力</h2>
+          <textarea class="output" placeholder="ここに整形結果が表示されます" readonly></textarea>
+        </section>
+      </div>
+    </section>
+
+    <!-- NEW: タイトルの下（別ブロック）に 1行3列 -->
+    <section class="set" data-set="meta">
+      <div class="set-head">
+        <h2 class="set-title">先着人数 / 表示グループ / カテゴリ</h2>
+        <div class="actions"><!-- ボタンなし --></div>
+      </div>
+
       <div class="triple-row">
         <section class="panel" data-field="first-come">
           <h2>先着人数</h2>
@@ -228,25 +240,13 @@
           </select>
         </section>
       </div>
-
-      <!-- 既存：入力/出力 -->
-      <div class="row">
-        <section class="panel">
-          <h2>入力</h2>
-          <textarea class="input" placeholder="ここにテキストをペースト"></textarea>
-        </section>
-        <section class="panel">
-          <h2>出力</h2>
-          <textarea class="output" placeholder="ここに整形結果が表示されます" readonly></textarea>
-        </section>
-      </div>
     </section>
   </main>
 
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.0.8";
+  const APP_VERSION = "v1.0.9";
   const APP_BUILD = "2026-01-20";
 
   const PRICE_SPACE_RULE_ENABLED = false;
@@ -378,6 +378,7 @@
     return current;
   }
 
+  // Toast（画面下に一瞬出る通知）
   const toastEl = document.getElementById('toast');
   function toast(msg){
     toastEl.textContent = msg;
@@ -386,7 +387,7 @@
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
   }
 
-  // タイトルセットのUI
+  // タイトル：変換のみ（コピー関連コードは削除）
   (function(){
     const setEl = document.querySelector('.set[data-set="title"]');
     if(!setEl) return;
@@ -394,7 +395,6 @@
     const input  = setEl.querySelector('.input');
     const output = setEl.querySelector('.output');
     const btnConvert = setEl.querySelector('.btn-convert');
-    const btnCopy    = setEl.querySelector('.btn-copy');
 
     function onConvert(){
       const src = input.value || '';
@@ -402,25 +402,9 @@
       toast('変換しました');
     }
 
-    async function copyText(text, okMsg){
-      if(!text){ toast('出力が空です'); return; }
-      try{
-        await navigator.clipboard.writeText(text);
-        toast(okMsg||'コピーしました'); return;
-      }catch{}
-      try{
-        const ta=document.createElement('textarea');
-        ta.value=text; ta.style.position='fixed'; ta.style.left='-9999px'; ta.setAttribute('readonly','');
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-        toast(okMsg||'コピーしました');
-      }catch{ toast('コピーに失敗しました'); }
-    }
-
-    function onCopy(e){ e.preventDefault(); copyText(output.value||'', 'コピーしました'); }
-
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
-    if(btnCopy)    btnCopy.addEventListener('click', onCopy);
 
+    // Ctrl/Cmd + Enter で変換
     setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
