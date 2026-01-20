@@ -39,26 +39,29 @@
 
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
-
+    
       const value = getTitleOutputValue(setEl);
       if (!value) {
         toast("出力が空です（先に変換してください）");
         return;
       }
-
+    
       try {
         const res = await chrome.runtime.sendMessage({
           type: MSG_TYPE,
           fields: { title: value }
         });
-
-        if (res && res.ok) toast("CMSへ送信しました");
-        else toast("CMS送信に失敗しました");
+    
+        if (res && res.ok) {
+          toast("CMSへ送信しました");
+        } else {
+          toast(`CMS送信に失敗：${res?.error || "unknown"}`);
+        }
       } catch (err) {
         console.warn(err);
-        toast("CMS送信に失敗しました");
+        toast(`CMS送信に失敗：${String(err?.message || err)}`);
       }
-    });
+    });    
   }
 
   function boot() {
