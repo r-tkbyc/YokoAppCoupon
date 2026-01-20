@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.0.9 - 2026-01-20 -->
-  <meta name="app-version" content="v1.0.9">
+  <!-- Text Formatter v1.1.0 - 2026-01-20 -->
+  <meta name="app-version" content="v1.1.0">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -103,9 +103,6 @@
   .date-label { font-size: 10px; }
   .toast { font-size: 10.5px; padding: 6px 8px; }
 
-  /* 本文（honbun）：入力・出力のデフォルト高さを現状の3倍に */
-  [data-set="honbun"] textarea { min-height: 180px; }
-
   /* === Unified button heights === */
   :root { --btn-h: 20px; }
   button,
@@ -128,24 +125,19 @@
   .ver-badge { font-size:10px; background:#3d3d3d; border:1px solid #565656; color:#eaeaea;
     border-radius:2px; padding:0 6px; line-height:18px; height:18px; white-space:nowrap; }
 
-  /* 店舗ラジオ：チェック時の色（残っていてもOK：将来の名残） */
-  .store-group input[type="radio"]{
-    accent-color: #2a81fb;
-  }
-
-  /* === NEW: タイトル下に 1行3列（先着人数/表示グループ/カテゴリ） === */
-  .triple-row{
+  /* === 1行4列（部門/先着人数/表示グループ/カテゴリ） === */
+  .quad-row{
     display:grid;
     grid-template-columns: 1fr;
     gap: var(--gap);
   }
   @media (min-width: 960px){
-    .triple-row{
-      grid-template-columns: 1fr 1fr 1fr;
+    .quad-row{
+      grid-template-columns: 1fr 1fr 1fr 1fr;
     }
   }
 
-  /* input/select を既存のUnity風に合わせる（textareaとは別） */
+  /* input/select を既存のUnity風に合わせる */
   input, select{
     width: 100%;
     height: var(--btn-h);
@@ -182,12 +174,12 @@
   </header>
 
   <main>
-    <!-- タイトル セット（ここは今のまま：toCMS / 変換 は拡張が挿す想定） -->
+    <!-- タイトル -->
     <section class="set" data-set="title">
       <div class="set-head">
         <h2 class="set-title">タイトル</h2>
         <div class="actions">
-          <!-- ここに拡張が toCMS を挿入する想定 -->
+          <!-- 拡張が toCMS を挿入する想定 -->
           <button class="btn-convert primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
         </div>
       </div>
@@ -204,14 +196,28 @@
       </div>
     </section>
 
-    <!-- NEW: タイトルの下（別ブロック）に 1行3列 -->
+    <!-- NEW: タイトルの下（別ブロック）に 1行4列 -->
     <section class="set" data-set="meta">
       <div class="set-head">
-        <h2 class="set-title">先着人数 / 表示グループ / カテゴリ</h2>
-        <div class="actions"><!-- ボタンなし --></div>
+        <h2 class="set-title">部門 / 先着人数 / 表示グループ / カテゴリ</h2>
+        <div class="actions"></div>
       </div>
 
-      <div class="triple-row">
+      <div class="quad-row">
+        <section class="panel" data-field="division">
+          <h2>部門</h2>
+          <select id="division">
+            <option value="" selected>選択してください</option>
+            <option value="①">①</option>
+            <option value="②">②</option>
+            <option value="③">③</option>
+            <option value="④">④</option>
+            <option value="⑤">⑤</option>
+            <option value="呉服">呉服</option>
+            <option value="美術">美術</option>
+          </select>
+        </section>
+
         <section class="panel" data-field="first-come">
           <h2>先着人数</h2>
           <input id="firstCome" type="number" min="0" step="1" placeholder="例：100">
@@ -246,9 +252,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.0.9";
+  const APP_VERSION = "v1.1.0";
   const APP_BUILD = "2026-01-20";
-
   const PRICE_SPACE_RULE_ENABLED = false;
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -378,7 +383,6 @@
     return current;
   }
 
-  // Toast（画面下に一瞬出る通知）
   const toastEl = document.getElementById('toast');
   function toast(msg){
     toastEl.textContent = msg;
@@ -387,7 +391,7 @@
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
   }
 
-  // タイトル：変換のみ（コピー関連コードは削除）
+  // タイトル：変換のみ
   (function(){
     const setEl = document.querySelector('.set[data-set="title"]');
     if(!setEl) return;
@@ -404,7 +408,6 @@
 
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
 
-    // Ctrl/Cmd + Enter で変換
     setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
