@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.0 - 2026-01-20 -->
-  <meta name="app-version" content="v1.1.0">
+  <!-- Text Formatter v1.1.1 - 2026-01-20 -->
+  <meta name="app-version" content="v1.1.1">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -24,6 +24,9 @@
   .row { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
   @media (min-width: 960px) { .row { grid-template-columns: 1fr 1fr; } }
 
+  /* 右カラム内で縦に積む（出力2つ用） */
+  .stack { display:flex; flex-direction:column; gap: var(--gap); }
+
   .panel { background: #0b121a; border: 1px solid #22303e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   .panel h2 { margin: 0 0 2px; font-size: 12px; font-weight: 700; color: #9fb3c8; }
 
@@ -37,23 +40,6 @@
 
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(20,30,45,.95); border: 1px solid #2a3a4b; padding: 10px 14px; border-radius: 10px; color: #e6edf3; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
   .toast.show { opacity: 1; }
-
-  .dates-row{display:flex;gap:12px}
-  .date-col{flex:1;display:flex;flex-direction:column;gap:6px}
-  .date-label{font-size:12px;color:#9fb3c8}
-  .date-field{width:100%;min-height:44px;resize:vertical;background:#0b121a;color:#e6edf3;border:1px solid #22303e;border-radius:6px;padding:8px;line-height:1.4;font-size:12px}
-  [data-set="kaiki"] .kaiki-output{min-height:60px}
-  .date-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .btn-compact{padding:5px 8px;font-size:12px;line-height:1}
-  .year-wrap{display:inline-flex;align-items:center;margin-right:4px}
-  .year-select{appearance:none;background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
-  .year-select:focus{outline:none}
-  .dt-wrap{display:inline-flex;align-items:center;margin-right:4px}
-  .dt-select{appearance:none;background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
-  .dt-select:disabled{opacity:.6}
-  .title-inline{display:flex;align-items:center;gap:8px}
-  .dtfree-wrap{display:inline-flex;align-items:center}
-  .dt-free{background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
 
   /* === Unity-like compact theme overrides (CSS-only) === */
   :root { --gap: 6px; }
@@ -69,12 +55,10 @@
   textarea { background:#2a2a2a; border:1px solid #3b3b3b; border-radius:2px; color:#e3e3e3; padding:8px; line-height:1.4; font-size:12px; }
   textarea[readonly]{opacity:.98;}
   textarea:focus, select:focus, input:focus, button:focus { outline:1px solid #2a81fb; outline-offset:0; box-shadow:0 0 0 1px #2a81fb inset; }
-  button, .year-select, .dt-select, .dt-free { background:#585858; border:1px solid #111111; color:#eaeaea; border-radius:2px; padding:4px 8px; font-size:12px; }
+  button { background:#585858; border:1px solid #111111; color:#eaeaea; border-radius:2px; padding:4px 8px; font-size:12px; }
   button:hover { background:#4a4a4a; }
   button:active { background:#5a5a5a; transform:none; }
   .primary { background:#585858; border-color:#222; color:#ffffff; }
-  .date-field { background:#2a2a2a; border:1px solid #3b3b3b; border-radius:2px; padding:6px; min-height:40px; font-size:12px; }
-  .date-label { color:#bfbfbf; font-size:11px; }
   .toast { background:rgba(46,46,46,.98); border:1px solid #3b3b3b; color:#dedede; font-size:12px; }
 
   /* === Tighten spacing === */
@@ -86,9 +70,7 @@
   .panel { padding: 4px; gap: 4px; }
   .panel h2 { font-size: 11px; margin: 0 0 1px; }
   textarea { padding: 6px; line-height: 1.35; font-size: 12px; min-height: 60px; }
-  button, .year-select, .dt-select, .dt-free { padding: 3px 8px; font-size: 11px; }
-  .btn-compact { padding: 3px 6px; font-size: 11px; }
-  .date-field { min-height: 36px; padding: 6px; font-size: 12px; line-height: 1.3; }
+  button { padding: 3px 8px; font-size: 11px; }
   .toast { font-size: 11px; padding: 8px 10px; }
 
   /* === Mini font scale === */
@@ -97,30 +79,12 @@
   .set-title { font-size: 11px; }
   .panel h2 { font-size: 10px; }
   textarea { font-size: 11px; line-height: 1.3; }
-  button, .year-select, .dt-select, .dt-free { font-size: 10px; padding: 2px 7px; }
-  .btn-compact { font-size: 10px; padding: 2px 6px; }
-  .date-field { font-size: 11px; min-height: 34px; padding: 5px; line-height: 1.25; }
-  .date-label { font-size: 10px; }
+  button { font-size: 10px; padding: 2px 7px; }
   .toast { font-size: 10.5px; padding: 6px 8px; }
 
   /* === Unified button heights === */
   :root { --btn-h: 20px; }
-  button,
-  .btn-compact,
-  .btn-copy,
-  .btn-copy-date,
-  .btn-copy-start,
-  .btn-copy-end,
-  .btn-copy-dtfree {
-    height: var(--btn-h);
-    padding: 0 8px !important;
-    line-height: calc(var(--btn-h) - 2px);
-  }
-  .year-select, .dt-select, .dt-free {
-    height: var(--btn-h);
-    padding: 0 8px !important;
-    line-height: calc(var(--btn-h) - 2px);
-  }
+  button { height: var(--btn-h); padding: 0 8px !important; line-height: calc(var(--btn-h) - 2px); }
   header { display:flex; align-items:center; justify-content:space-between; }
   .ver-badge { font-size:10px; background:#3d3d3d; border:1px solid #565656; color:#eaeaea;
     border-radius:2px; padding:0 6px; line-height:18px; height:18px; white-space:nowrap; }
@@ -174,10 +138,10 @@
   </header>
 
   <main>
-    <!-- タイトル -->
+    <!-- タイトル / 管理名称 -->
     <section class="set" data-set="title">
       <div class="set-head">
-        <h2 class="set-title">タイトル</h2>
+        <h2 class="set-title">タイトル / 管理名称</h2>
         <div class="actions">
           <!-- 拡張が toCMS を挿入する想定 -->
           <button class="btn-convert primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
@@ -189,14 +153,22 @@
           <h2>入力</h2>
           <textarea class="input" placeholder="ここにテキストをペースト"></textarea>
         </section>
-        <section class="panel">
-          <h2>出力</h2>
-          <textarea class="output" placeholder="ここに整形結果が表示されます" readonly></textarea>
-        </section>
+
+        <div class="stack">
+          <section class="panel">
+            <h2>出力（タイトル）</h2>
+            <textarea class="output-title" placeholder="ここに整形結果が表示されます" readonly></textarea>
+          </section>
+
+          <section class="panel">
+            <h2>出力（管理名称）</h2>
+            <textarea class="output-admin" placeholder="ここに整形結果が表示されます" readonly></textarea>
+          </section>
+        </div>
       </div>
     </section>
 
-    <!-- NEW: タイトルの下（別ブロック）に 1行4列 -->
+    <!-- メタ：部門/先着人数/表示グループ/カテゴリ -->
     <section class="set" data-set="meta">
       <div class="set-head">
         <h2 class="set-title">部門 / 先着人数 / 表示グループ / カテゴリ</h2>
@@ -252,7 +224,7 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.0";
+  const APP_VERSION = "v1.1.1";
   const APP_BUILD = "2026-01-20";
   const PRICE_SPACE_RULE_ENABLED = false;
 
@@ -261,8 +233,12 @@
     if (el) el.textContent = `${APP_VERSION} (${APP_BUILD})`;
   });
 
+  // =============================
+  //  ルール適用パイプライン（全体）
+  // =============================
   const rulesGlobal = [];
 
+  // 1) URL保護＋URL内の全角→半角
   rulesGlobal.push(function urlProtect(s){
     const urlRegex = /(https?:\/\/[!-~]+)/g;
     const bucket = [];
@@ -278,12 +254,14 @@
     return { text: out, ctx: { urls: bucket } };
   });
 
+  // 1.5) 計量単位の互換文字 → ASCII（㎝, ㎖, ㎜）
   rulesGlobal.push(function siCompatUnits(s){
     return String(s||'').replace(/\u339D/g, 'cm')
                         .replace(/\u3396/g, 'ml')
                         .replace(/\u339C/g, 'mm');
   });
 
+  // 1.2) ［］は常に全角、～は常に全角（URLはurlProtectで保護済み）
   rulesGlobal.push(function fullwidthBracketsAndWave(s){
     return String(s||'')
       .replace(/\[/g, '［')
@@ -292,6 +270,7 @@
       .replace(/→/g, '～');
   });
 
+  // 2.x) 用語ゆれ・表記統一（全体適用）
   rulesGlobal.push(function lexicalReplacements(s){
     return String(s || '')
       .replace(/POPUPSTORE/g, 'POP UP STORE')
@@ -306,6 +285,7 @@
       .replace(/髙島屋/g, '高島屋');
   });
 
+  // 2) 英数は半角、記号は全角（空白は半角維持）/ 記号のゆれ正規化
   rulesGlobal.push(function widthNorm(s){
     const toHalfAlnum = x => x.replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
     const toHalfDigits= x => x.replace(/[０-９]/g,           ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
@@ -336,16 +316,19 @@
     return body;
   });
 
+  // 2.5) TEL のコロンは必ず全角に固定
   rulesGlobal.push(function fixTelColon(s){
     return String(s || '').replace(/\bTEL[:：]/g, 'TEL：');
   });
 
+  // 3) スペース/改行ルール
   rulesGlobal.push(function spaceBreak(s){
     return String(s||'')
       .replace(/[ 　]+/g,' ')
       .replace(/(\r?\n){3,}/g,'\n\n');
   });
 
+  // 3.5) 価格の直前に全角スペースを付与（「税込…円以上」は除外）
   rulesGlobal.push(function ensureZenkakuSpaceBeforePrice(s){
     if (!PRICE_SPACE_RULE_ENABLED) return s;
     const str = String(s || '');
@@ -365,10 +348,12 @@
     });
   });
 
+  // 4) URL復元
   rulesGlobal.push(function urlRestore(s, ctx){
     return String(s||'').replace(/⟦URL(\d+)⟧/g, (_, i) => (ctx.urls||[])[Number(i)] ?? '');
   });
 
+  // 変換エントリ（全体ルール適用）
   function transform(text){
     let ctx = {};
     let current = String(text||'');
@@ -383,6 +368,7 @@
     return current;
   }
 
+  // Toast
   const toastEl = document.getElementById('toast');
   function toast(msg){
     toastEl.textContent = msg;
@@ -391,23 +377,30 @@
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
   }
 
-  // タイトル：変換のみ
+  // タイトル/管理名称：変換のみ（現時点では同じ値を入れる）
   (function(){
     const setEl = document.querySelector('.set[data-set="title"]');
     if(!setEl) return;
 
     const input  = setEl.querySelector('.input');
-    const output = setEl.querySelector('.output');
+    const outTitle = setEl.querySelector('.output-title');
+    const outAdmin = setEl.querySelector('.output-admin');
     const btnConvert = setEl.querySelector('.btn-convert');
 
     function onConvert(){
       const src = input.value || '';
-      output.value = transform(src).trim();
+      const t = transform(src).trim();
+
+      // 現時点：管理名称も同値（派生ルールは後で差し替える）
+      outTitle.value = t;
+      outAdmin.value = t;
+
       toast('変換しました');
     }
 
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
 
+    // Ctrl/Cmd + Enter で変換
     setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
