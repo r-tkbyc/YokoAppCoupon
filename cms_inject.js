@@ -36,16 +36,18 @@
   }
 
   function setNativeValue(input, value) {
-    const proto = Object.getPrototypeOf(input);
-    const desc = Object.getOwnPropertyDescriptor(proto, "value");
-    if (desc && typeof desc.set === "function") {
-      desc.set.call(input, value);
-    } else {
-      input.value = value;
-    }
+    // Reactに確実に認識させる定番手法
+    const setter =
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set ||
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+  
+    if (setter) setter.call(input, value);
+    else input.value = value;
+  
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
+  
 
   function safeFillTitle(titleValue) {
     const input = findInputByLabelText("タイトル");
