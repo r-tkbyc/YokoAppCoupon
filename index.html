@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Text Formatter v1.0.7 - 2026-01-20 -->
+  <meta name="app-version" content="v1.0.7">
+
+  <title>YokoAppCoupon流し込みツール</title>
+  <style>
+  :root { --gap: 8px; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, Helvetica, Arial, sans-serif; margin: 0; background: #0b0f14; color: #e6edf3; }
+  header { padding: 10px 14px; border-bottom: 1px solid #22303e; background: #0f1620; }
+  h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  main { padding: 12px; max-width: 1200px; margin: 0 auto; }
+
+  .set { display: flex; flex-direction: column; gap: var(--gap); margin-top: 14px; background: #0f1620; border: 1px solid #22303e; border-radius: 8px; padding: 8px; }
+  .set-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .set-title { margin: 0; font-size: 13px; color: #c9d6e2; font-weight: 700; }
+  .actions { display: flex; gap: 6px; align-items: center; }
+
+  .row { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
+  @media (min-width: 960px) { .row { grid-template-columns: 1fr 1fr; } }
+
+  /* 本文用：常に縦並び */
+  .row-vertical { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
+  @media (min-width: 960px) { .row-vertical { grid-template-columns: 1fr; } }
+
+  .panel { background: #0b121a; border: 1px solid #22303e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .panel h2 { margin: 0 0 2px; font-size: 12px; font-weight: 700; color: #9fb3c8; }
+
+  textarea { width: 100%; min-height: 60px; resize: vertical; background: #0b121a; color: #e6edf3; border: 1px solid #22303e; border-radius: 6px; padding: 10px; line-height: 1.45; font-size: 13px; }
+  textarea[readonly] { opacity: .95; }
+
+  button { cursor: pointer; border: 1px solid #2a3a4b; background: #132032; color: #e6edf3; border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  button:hover { background: #18283d; }
+  button:active { transform: translateY(1px); }
+  .primary { background: #2155cd; border-color: #2155cd; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(20,30,45,.95); border: 1px solid #2a3a4b; padding: 10px 14px; border-radius: 10px; color: #e6edf3; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  .toast.show { opacity: 1; }
+
+  .dates-row{display:flex;gap:12px}
+  .date-col{flex:1;display:flex;flex-direction:column;gap:6px}
+  .date-label{font-size:12px;color:#9fb3c8}
+  .date-field{width:100%;min-height:44px;resize:vertical;background:#0b121a;color:#e6edf3;border:1px solid #22303e;border-radius:6px;padding:8px;line-height:1.4;font-size:12px}
+  [data-set="kaiki"] .kaiki-output{min-height:60px}
+  .date-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .btn-compact{padding:5px 8px;font-size:12px;line-height:1}
+  .year-wrap{display:inline-flex;align-items:center;margin-right:4px}
+  .year-select{appearance:none;background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
+  .year-select:focus{outline:none}
+  .dt-wrap{display:inline-flex;align-items:center;margin-right:4px}
+  .dt-select{appearance:none;background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
+  .dt-select:disabled{opacity:.6}
+  .title-inline{display:flex;align-items:center;gap:8px}
+  .dtfree-wrap{display:inline-flex;align-items:center}
+  .dt-free{background:#132032;border:1px solid #2a3a4b;color:#e6edf3;border-radius:6px;padding:4px 8px;font-size:12px}
+
+  /* === Unity-like compact theme overrides (CSS-only) === */
+  :root { --gap: 6px; }
+  body { background:#383838; color:#dcdcdc; }
+  header { background:#383838; border-bottom:1px solid #222; padding:8px 12px; }
+  h1 { font-size:14px; font-weight:600; color:#dcdcdc; }
+  main { padding:10px; }
+  .set { background:#383838; border:1px solid #222; border-radius:2px; padding:6px; margin-top:10px; }
+  .set-title { font-size:12px; color:#e0e0e0; }
+  .actions { gap:5px; }
+  .panel { background:#383838; border:1px solid #222; border-radius:2px; padding:6px; gap:6px; }
+  .panel h2 { font-size:11px; color:#bfbfbf; margin:0 0 2px; font-weight:600; }
+  textarea { background:#2a2a2a; border:1px solid #3b3b3b; border-radius:2px; color:#e3e3e3; padding:8px; line-height:1.4; font-size:12px; }
+  textarea[readonly]{opacity:.98;}
+  textarea:focus, select:focus, input:focus, button:focus { outline:1px solid #2a81fb; outline-offset:0; box-shadow:0 0 0 1px #2a81fb inset; }
+  button, .year-select, .dt-select, .dt-free { background:#585858; border:1px solid #111111; color:#eaeaea; border-radius:2px; padding:4px 8px; font-size:12px; }
+  button:hover { background:#4a4a4a; }
+  button:active { background:#5a5a5a; transform:none; }
+  .primary { background:#585858; border-color:#222; color:#ffffff; }
+  .date-field { background:#2a2a2a; border:1px solid #3b3b3b; border-radius:2px; padding:6px; min-height:40px; font-size:12px; }
+  .date-label { color:#bfbfbf; font-size:11px; }
+  .toast { background:rgba(46,46,46,.98); border:1px solid #3b3b3b; color:#dedede; font-size:12px; }
+
+  /* === Tighten spacing === */
+  :root { --gap: 4px; }
+  header { padding: 6px 10px; }
+  .set { padding: 4px; margin-top: 8px; }
+  .set-title { font-size: 11.5px; }
+  .actions { gap: 4px; }
+  .panel { padding: 4px; gap: 4px; }
+  .panel h2 { font-size: 11px; margin: 0 0 1px; }
+  textarea { padding: 6px; line-height: 1.35; font-size: 12px; min-height: 60px; }
+  button, .year-select, .dt-select, .dt-free { padding: 3px 8px; font-size: 11px; }
+  .btn-compact { padding: 3px 6px; font-size: 11px; }
+  .date-field { min-height: 36px; padding: 6px; font-size: 12px; line-height: 1.3; }
+  .toast { font-size: 11px; padding: 8px 10px; }
+
+  /* === Mini font scale === */
+  body { font-size: 12px; }
+  h1 { font-size: 13px; }
+  .set-title { font-size: 11px; }
+  .panel h2 { font-size: 10px; }
+  textarea { font-size: 11px; line-height: 1.3; }
+  button, .year-select, .dt-select, .dt-free { font-size: 10px; padding: 2px 7px; }
+  .btn-compact { font-size: 10px; padding: 2px 6px; }
+  .date-field { font-size: 11px; min-height: 34px; padding: 5px; line-height: 1.25; }
+  .date-label { font-size: 10px; }
+  .toast { font-size: 10.5px; padding: 6px 8px; }
+
+  /* 本文（honbun）：入力・出力のデフォルト高さを現状の3倍に */
+  [data-set="honbun"] textarea { min-height: 180px; }
+
+  /* === Unified button heights === */
+  :root { --btn-h: 20px; }
+  button,
+  .btn-compact,
+  .btn-copy,
+  .btn-copy-date,
+  .btn-copy-start,
+  .btn-copy-end,
+  .btn-copy-dtfree {
+    height: var(--btn-h);
+    padding: 0 8px !important;
+    line-height: calc(var(--btn-h) - 2px);
+  }
+  .year-select, .dt-select, .dt-free {
+    height: var(--btn-h);
+    padding: 0 8px !important;
+    line-height: calc(var(--btn-h) - 2px);
+  }
+  header { display:flex; align-items:center; justify-content:space-between; }
+  .ver-badge { font-size:10px; background:#3d3d3d; border:1px solid #565656; color:#eaeaea;
+    border-radius:2px; padding:0 6px; line-height:18px; height:18px; white-space:nowrap; }
+
+  /* 店舗ラジオ：チェック時の色 */
+  .store-group input[type="radio"]{
+    accent-color: #2a81fb; /* 好きな色に変更可 */
+  }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>YokoAppCoupon流し込みツール</h1>
+    <button id="ver" class="ver-badge"></button>
+  </header>
+
+  <main>
+    <!-- タイトル セット（これだけ残す） -->
+    <section class="set" data-set="title">
+      <div class="set-head">
+        <h2 class="set-title">タイトル</h2>
+        <div class="actions">
+          <button class="btn-convert primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
+          <button class="btn-copy" title="コピー">コピー</button>
+        </div>
+      </div>
+      <div class="row">
+        <section class="panel">
+          <h2>入力</h2>
+          <textarea class="input" placeholder="ここにテキストをペースト"></textarea>
+        </section>
+        <section class="panel">
+          <h2>出力</h2>
+          <textarea class="output" placeholder="ここに整形結果が表示されます" readonly></textarea>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  const APP_VERSION = "v1.0.7";
+  const APP_BUILD = "2026-01-20";
+
+  // 価格直前の全角スペース付与を将来再有効化できるように保持
+  const PRICE_SPACE_RULE_ENABLED = false;
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const el = document.getElementById("ver");
+    if (el) el.textContent = `${APP_VERSION} (${APP_BUILD})`;
+  });
+
+  // =============================
+  //  ルール適用パイプライン（全体）
+  //  今後の正規表現ルールは rulesGlobal に関数追加
+  // =============================
+  const rulesGlobal = [];
+
+  // 1) URL保護＋URL内の全角→半角
+  rulesGlobal.push(function urlProtect(s){
+    const urlRegex = /(https?:\/\/[!-~]+)/g;
+    const bucket = [];
+    const out = String(s||'').replace(urlRegex, (m) => {
+      const half = m
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0))
+        .replace(/[！-～]/g,       ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0))
+        .replace(/[‐―－ー‒–—−]/g, '-');
+      const key = `⟦URL${bucket.length}⟧`;
+      bucket.push(half);
+      return key;
+    });
+    return { text: out, ctx: { urls: bucket } };
+  });
+
+  // 1.5) 計量単位の互換文字 → ASCII（㎝, ㎖, ㎜）
+  rulesGlobal.push(function siCompatUnits(s){
+    return String(s||'').replace(/\u339D/g, 'cm')
+                        .replace(/\u3396/g, 'ml')
+                        .replace(/\u339C/g, 'mm');
+  });
+
+  // 1.2) ［］は常に全角、～は常に全角（URLはurlProtectで保護済み）
+  rulesGlobal.push(function fullwidthBracketsAndWave(s){
+    return String(s||'')
+      .replace(/\[/g, '［')
+      .replace(/\]/g, '］')
+      .replace(/[\u007E\u301C]/g, '～')
+      .replace(/→/g, '～');
+  });
+
+  // 2.x) 用語ゆれ・表記統一（全体適用）
+  rulesGlobal.push(function lexicalReplacements(s){
+    return String(s || '')
+      .replace(/POPUPSTORE/g, 'POP UP STORE')
+      .replace(/POPUPSHOP/g, 'POP UP SHOP')
+      .replace(/POPUP/g, 'POP UP')
+      .replace(/是非/g, 'ぜひ')
+      .replace(/くださいませ/g, 'ください')
+      .replace(/お買い上げ/g, 'お買上げ')
+      .replace(/お買いあげ/g, 'お買上げ')
+      .replace(/致します/g, 'いたします')
+      .replace(/ラインナップ/g, 'ラインアップ')
+      .replace(/髙島屋/g, '高島屋');
+  });
+
+  // 2) 英数は半角、記号は全角（空白は半角維持）/ 記号のゆれ正規化
+  rulesGlobal.push(function widthNorm(s){
+    const toHalfAlnum = x => x.replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
+    const toHalfDigits= x => x.replace(/[０-９]/g,           ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
+    const toFullWidthSymbols = x => x.replace(/[\x21-\x7E]/g, ch => {
+      if (/[A-Za-z0-9]/.test(ch)) return ch;
+      if (ch === ' ') return ch;
+      return String.fromCharCode(ch.charCodeAt(0) + 0xFEE0);
+    });
+    let body = toHalfAlnum(s);
+    body = toFullWidthSymbols(body);
+    body = toHalfDigits(body);
+    body = body
+      .replace(/\(/g,'（').replace(/\)/g,'）')
+      .replace(/\[/g,'［').replace(/\]/g,'］')
+      .replace(/\{/g,'｛').replace(/\}/g,'｝')
+      .replace(/</g,'＜').replace(/>/g,'＞')
+      .replace(/＜/g,'〈').replace(/＞/g,'〉')
+      .replace(/≪/g,'《').replace(/≫/g,'》')
+      .replace(/【/g,'〔').replace(/】/g,'〕')
+      .replace(/\*/g,'※').replace(/＊/g,'※');
+    body = body.replace(/[A-Za-z0-9０-９]+[\p{P}\p{S}]+(?=[A-Za-z0-9０-９]+)/gu, seg =>
+      seg.replace(/[！-～]/g, ch => {
+        const keep = '（）［］｛｝「」『』《》〔〕〈〉';
+        if (keep.includes(ch)) return ch;
+        return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+      }).replace(/[‐―－ー‒–—−]/g, '-')
+    );
+    return body;
+  });
+
+  // 2.5) TEL のコロンは必ず全角に固定
+  rulesGlobal.push(function fixTelColon(s){
+    return String(s || '').replace(/\bTEL[:：]/g, 'TEL：');
+  });
+
+  // 3) スペース/改行ルール
+  rulesGlobal.push(function spaceBreak(s){
+    return String(s||'')
+      .replace(/[ 　]+/g,' ')
+      .replace(/(\r?\n){3,}/g,'\n\n');
+  });
+
+  // 3.5) 価格の直前に全角スペースを付与（「税込…円以上」は除外）
+  rulesGlobal.push(function ensureZenkakuSpaceBeforePrice(s){
+    if (!PRICE_SPACE_RULE_ENABLED) return s;
+    const str = String(s || '');
+    const priceRe = /([ 　]*)(\d{1,3}(?:,\d{3})+|\d+)([ 　]*円)/g;
+
+    return str.replace(priceRe, (match, ws, num, yenPart, offset) => {
+      const prev = str.slice(0, offset);
+      const next = str.slice(offset + match.length);
+
+      if (prev.endsWith('税込') && next.startsWith('以上')) return match;
+
+      const prevChar = prev.slice(-1);
+      const atLineStart = offset === 0 || prevChar === '\n' || prevChar === '\r';
+      if (atLineStart) return `${num}${yenPart}`;
+
+      return `　${num}${yenPart}`;
+    });
+  });
+
+  // 4) URL復元
+  rulesGlobal.push(function urlRestore(s, ctx){
+    return String(s||'').replace(/⟦URL(\d+)⟧/g, (_, i) => (ctx.urls||[])[Number(i)] ?? '');
+  });
+
+  // 変換エントリ（全体ルール適用）
+  function transform(text){
+    let ctx = {};
+    let current = String(text||'');
+    for (const rule of rulesGlobal){
+      const r = rule(current, ctx);
+      if (typeof r === 'string'){ current = r; }
+      else if (r && typeof r === 'object' && 'text' in r){
+        current = r.text;
+        ctx = { ...(ctx||{}), ...(r.ctx||{}) };
+      }
+    }
+    return current;
+  }
+
+  // =============================
+  //  Toast
+  // =============================
+  const toastEl = document.getElementById('toast');
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
+  }
+
+  // =============================
+  //  タイトル：UIコントローラ（この1セットのみ）
+  // =============================
+  (function(){
+    const setEl = document.querySelector('.set[data-set="title"]');
+    if(!setEl) return;
+
+    const input  = setEl.querySelector('.input');
+    const output = setEl.querySelector('.output');
+    const btnConvert = setEl.querySelector('.btn-convert');
+    const btnCopy    = setEl.querySelector('.btn-copy');
+
+    function onConvert(){
+      const src = input.value || '';
+      output.value = transform(src).trim();
+      toast('変換しました');
+    }
+
+    async function copyText(text, okMsg){
+      if(!text){ toast('出力が空です'); return; }
+      try{
+        await navigator.clipboard.writeText(text);
+        toast(okMsg||'コピーしました'); return;
+      }catch{}
+      try{
+        const ta=document.createElement('textarea');
+        ta.value=text; ta.style.position='fixed'; ta.style.left='-9999px'; ta.setAttribute('readonly','');
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+        toast(okMsg||'コピーしました');
+      }catch{ toast('コピーに失敗しました'); }
+    }
+
+    function onCopy(e){ e.preventDefault(); copyText(output.value||'', 'コピーしました'); }
+
+    if(btnConvert) btnConvert.addEventListener('click', onConvert);
+    if(btnCopy)    btnCopy.addEventListener('click', onCopy);
+
+    // Ctrl/Cmd + Enter で変換
+    setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
+  })();
+
+  // =============================
+  //  右上バージョン表記＝クリア（タイトルだけなので全部クリア）
+  // =============================
+  (function(){
+    function clearAll(){
+      var nodes = document.querySelectorAll('input, textarea, select');
+      nodes.forEach(function(el){
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else if (el.type === 'checkbox' || el.type === 'radio') el.checked = false;
+        else el.value = '';
+      });
+      toast('クリアしました');
+    }
+    var vb = document.getElementById('ver');
+    if (vb) vb.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
+  })();
+  </script>
+</body>
+</html>
