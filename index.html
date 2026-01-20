@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.0.7 - 2026-01-20 -->
-  <meta name="app-version" content="v1.0.7">
+  <!-- Text Formatter v1.0.8 - 2026-01-20 -->
+  <meta name="app-version" content="v1.0.8">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -136,6 +136,48 @@
   .store-group input[type="radio"]{
     accent-color: #2a81fb; /* 好きな色に変更可 */
   }
+
+  /* === NEW: 1行3列（先着人数/表示グループ/カテゴリ） === */
+  .triple-row{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: var(--gap);
+    padding: 0; /* set内で詰める */
+  }
+  @media (min-width: 960px){
+    .triple-row{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+  }
+
+  /* select / input を既存のUnity風に合わせる */
+  input, select{
+    width: 100%;
+    height: var(--btn-h);
+    background:#585858;
+    border:1px solid #111111;
+    color:#eaeaea;
+    border-radius:2px;
+    padding: 0 8px;
+    font-size: 10px;
+    line-height: calc(var(--btn-h) - 2px);
+    appearance: none;
+  }
+  select{
+    padding-right: 22px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, #eaeaea 50%),
+      linear-gradient(135deg, #eaeaea 50%, transparent 50%);
+    background-position:
+      calc(100% - 14px) calc(50% - 2px),
+      calc(100% - 9px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  input[type="number"]{ appearance: textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
+
   </style>
 </head>
 
@@ -146,7 +188,7 @@
   </header>
 
   <main>
-    <!-- タイトル セット（これだけ残す） -->
+    <!-- タイトル セット -->
     <section class="set" data-set="title">
       <div class="set-head">
         <h2 class="set-title">タイトル</h2>
@@ -155,6 +197,39 @@
           <button class="btn-copy" title="コピー">コピー</button>
         </div>
       </div>
+
+      <!-- NEW: タイトルの下 1行3列 -->
+      <div class="triple-row">
+        <section class="panel" data-field="first-come">
+          <h2>先着人数</h2>
+          <input id="firstCome" type="number" min="0" step="1" placeholder="例：100">
+        </section>
+
+        <section class="panel" data-field="display-group">
+          <h2>表示グループ</h2>
+          <select id="displayGroup">
+            <option value="" selected>選択してください</option>
+            <option value="ビューティー">ビューティー</option>
+            <option value="キャンペーン">キャンペーン</option>
+            <option value="催・イベント">催・イベント</option>
+            <option value="ファッション">ファッション</option>
+            <option value="グルメ">グルメ</option>
+            <option value="キッズ">キッズ</option>
+            <option value="ライフスタイル">ライフスタイル</option>
+          </select>
+        </section>
+
+        <section class="panel" data-field="category">
+          <h2>カテゴリ</h2>
+          <select id="category">
+            <option value="" selected>選択してください</option>
+            <option value="アプリクーポン">アプリクーポン</option>
+            <option value="アプリ会員様限定ポイントアップ">アプリ会員様限定ポイントアップ</option>
+          </select>
+        </section>
+      </div>
+
+      <!-- 既存：入力/出力 -->
       <div class="row">
         <section class="panel">
           <h2>入力</h2>
@@ -171,10 +246,9 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.0.7";
+  const APP_VERSION = "v1.0.8";
   const APP_BUILD = "2026-01-20";
 
-  // 価格直前の全角スペース付与を将来再有効化できるように保持
   const PRICE_SPACE_RULE_ENABLED = false;
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -182,13 +256,8 @@
     if (el) el.textContent = `${APP_VERSION} (${APP_BUILD})`;
   });
 
-  // =============================
-  //  ルール適用パイプライン（全体）
-  //  今後の正規表現ルールは rulesGlobal に関数追加
-  // =============================
   const rulesGlobal = [];
 
-  // 1) URL保護＋URL内の全角→半角
   rulesGlobal.push(function urlProtect(s){
     const urlRegex = /(https?:\/\/[!-~]+)/g;
     const bucket = [];
@@ -204,14 +273,12 @@
     return { text: out, ctx: { urls: bucket } };
   });
 
-  // 1.5) 計量単位の互換文字 → ASCII（㎝, ㎖, ㎜）
   rulesGlobal.push(function siCompatUnits(s){
     return String(s||'').replace(/\u339D/g, 'cm')
                         .replace(/\u3396/g, 'ml')
                         .replace(/\u339C/g, 'mm');
   });
 
-  // 1.2) ［］は常に全角、～は常に全角（URLはurlProtectで保護済み）
   rulesGlobal.push(function fullwidthBracketsAndWave(s){
     return String(s||'')
       .replace(/\[/g, '［')
@@ -220,7 +287,6 @@
       .replace(/→/g, '～');
   });
 
-  // 2.x) 用語ゆれ・表記統一（全体適用）
   rulesGlobal.push(function lexicalReplacements(s){
     return String(s || '')
       .replace(/POPUPSTORE/g, 'POP UP STORE')
@@ -235,7 +301,6 @@
       .replace(/髙島屋/g, '高島屋');
   });
 
-  // 2) 英数は半角、記号は全角（空白は半角維持）/ 記号のゆれ正規化
   rulesGlobal.push(function widthNorm(s){
     const toHalfAlnum = x => x.replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
     const toHalfDigits= x => x.replace(/[０-９]/g,           ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
@@ -266,19 +331,16 @@
     return body;
   });
 
-  // 2.5) TEL のコロンは必ず全角に固定
   rulesGlobal.push(function fixTelColon(s){
     return String(s || '').replace(/\bTEL[:：]/g, 'TEL：');
   });
 
-  // 3) スペース/改行ルール
   rulesGlobal.push(function spaceBreak(s){
     return String(s||'')
       .replace(/[ 　]+/g,' ')
       .replace(/(\r?\n){3,}/g,'\n\n');
   });
 
-  // 3.5) 価格の直前に全角スペースを付与（「税込…円以上」は除外）
   rulesGlobal.push(function ensureZenkakuSpaceBeforePrice(s){
     if (!PRICE_SPACE_RULE_ENABLED) return s;
     const str = String(s || '');
@@ -298,12 +360,10 @@
     });
   });
 
-  // 4) URL復元
   rulesGlobal.push(function urlRestore(s, ctx){
     return String(s||'').replace(/⟦URL(\d+)⟧/g, (_, i) => (ctx.urls||[])[Number(i)] ?? '');
   });
 
-  // 変換エントリ（全体ルール適用）
   function transform(text){
     let ctx = {};
     let current = String(text||'');
@@ -318,9 +378,6 @@
     return current;
   }
 
-  // =============================
-  //  Toast
-  // =============================
   const toastEl = document.getElementById('toast');
   function toast(msg){
     toastEl.textContent = msg;
@@ -329,9 +386,7 @@
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
   }
 
-  // =============================
-  //  タイトル：UIコントローラ（この1セットのみ）
-  // =============================
+  // タイトルセットのUI
   (function(){
     const setEl = document.querySelector('.set[data-set="title"]');
     if(!setEl) return;
@@ -366,13 +421,10 @@
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
     if(btnCopy)    btnCopy.addEventListener('click', onCopy);
 
-    // Ctrl/Cmd + Enter で変換
     setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
-  // =============================
-  //  右上バージョン表記＝クリア（タイトルだけなので全部クリア）
-  // =============================
+  // 右上バージョン＝クリア（全部クリア）
   (function(){
     function clearAll(){
       var nodes = document.querySelectorAll('input, textarea, select');
