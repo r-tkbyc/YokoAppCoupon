@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YokoAppCoupon流し込みツール連携",
+  "name": "YokoAppCoupon to CMS",
   "version": "0.1.0",
-  "description": "KoMaTukuru → 横浜CMS（新規クーポン）へ自動入力（タイトルのみ）",
+  "description": "YokoAppCoupon(GitHub Pages) → 横浜CMS（新規クーポン）へ自動入力（タイトルのみ）",
   "permissions": ["tabs"],
   "host_permissions": [
     "https://front-admin.taspapp.takashimaya.co.jp/*"
@@ -20,7 +20,7 @@
     },
     {
       "matches": [
-        "https://YOUR-KOMATUKURU-URL-HERE/*"
+        "https://r-tkbyc.github.io/YokoAppCoupon/*"
       ],
       "js": ["koma_inject.js"],
       "run_at": "document_idle"

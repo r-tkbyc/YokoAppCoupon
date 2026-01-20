@@ -10,8 +10,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabs = await chrome.tabs.query({ url: `${CMS_URL_PREFIX}*` });
 
       if (!tabs || tabs.length === 0) {
-        // 送信元タブにエラー返してもいいが、最小で握りつぶし
-        throw new Error("CMSタブが見つかりません");
+        throw new Error("CMSタブが見つかりません（/store-coupons/new を開いてください）");
       }
 
       // lastAccessed が最大のタブを採用（事故防止：最後に触ったタブ）

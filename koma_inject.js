@@ -2,7 +2,7 @@
   const MSG_TYPE = "YK_COUPON_TO_CMS";
 
   function toast(msg) {
-    // KoMaTukuru側に既存toastがある前提：無ければconsoleに落ちるだけ
+    // YokoAppCoupon側に既存toastがある前提：無ければconsoleに落ちるだけ
     try {
       if (typeof window.toast === "function") return window.toast(msg);
     } catch {}
@@ -47,11 +47,13 @@
       }
 
       try {
-        await chrome.runtime.sendMessage({
+        const res = await chrome.runtime.sendMessage({
           type: MSG_TYPE,
           fields: { title: value }
         });
-        toast("CMSへ送信しました");
+
+        if (res && res.ok) toast("CMSへ送信しました");
+        else toast("CMS送信に失敗しました");
       } catch (err) {
         console.warn(err);
         toast("CMS送信に失敗しました");
@@ -62,7 +64,6 @@
   function boot() {
     const setEl = findTitleSet();
     if (!setEl) return;
-
     addToCmsButton(setEl);
   }
 
