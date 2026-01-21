@@ -6,55 +6,18 @@
     return location.href.startsWith(PAGE_PREFIX);
   }
 
-  function normalizeText(s) {
+  function normalizeLabelText(s) {
     return String(s || "")
       .replace(/\s+/g, "")
       .replace(/[*＊]/g, "")
       .replace(/[：:]/g, "");
   }
 
-  function ensureToast() {
-    let el = document.getElementById("__yk_tocms_toast");
-    if (el) return el;
-
-    el = document.createElement("div");
-    el.id = "__yk_tocms_toast";
-    el.style.cssText = [
-      "position:fixed",
-      "left:50%",
-      "bottom:24px",
-      "transform:translateX(-50%)",
-      "background:rgba(20,20,20,.92)",
-      "border:1px solid rgba(255,255,255,.18)",
-      "color:#fff",
-      "padding:10px 14px",
-      "border-radius:10px",
-      "font-size:12px",
-      "z-index:2147483647",
-      "opacity:0",
-      "pointer-events:none",
-      "transition:opacity .2s ease"
-    ].join(";");
-
-    document.documentElement.appendChild(el);
-    return el;
-  }
-
-  function toast(msg) {
-    const el = ensureToast();
-    el.textContent = msg;
-    el.style.opacity = "1";
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => (el.style.opacity = "0"), 1400);
-  }
-
   function findInputByLabelText(labelText) {
-    const want = normalizeText(labelText);
-
-    // label[for] → #id（Mantineの構造に合わせる）
+    const want = normalizeLabelText(labelText);
     const labels = Array.from(document.querySelectorAll("label[for]"));
     for (const lab of labels) {
-      const t = normalizeText(lab.textContent);
+      const t = normalizeLabelText(lab.textContent);
       if (t === want) {
         const id = lab.getAttribute("for");
         if (!id) continue;
@@ -66,7 +29,6 @@
   }
 
   function setNativeValue(input, value) {
-    // React/Mantineに確実に認識させる
     const setter =
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set ||
       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
@@ -78,121 +40,154 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function sleep(ms) {
+  function ensureToast() {
+    let el = document.getElementById("__yk_toast");
+    if (el) return el;
+
+    el = document.createElement("div");
+    el.id = "__yk_toast";
+    el.style.cssText = [
+      "position:fixed",
+      "left:50%",
+      "bottom:24px",
+      "transform:translateX(-50%)",
+      "background:rgba(30,30,30,.95)",
+      "border:1px solid #3b3b3b",
+      "color:#dedede",
+      "font-size:12px",
+      "padding:8px 10px",
+      "border-radius:8px",
+      "z-index:2147483647",
+      "opacity:0",
+      "pointer-events:none",
+      "transition:opacity .2s ease"
+    ].join(";");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function toast(msg) {
+    const el = ensureToast();
+    el.textContent = msg;
+    el.style.opacity = "1";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => (el.style.opacity = "0"), 1400);
+  }
+
+  function safeFillText(label, value) {
+    const input = findInputByLabelText(label);
+    if (!input) return { ok: false, reason: `${label}欄が見つかりません` };
+
+    const current = (input.value || "").trim();
+    if (current) return { ok: false, reason: `${label}欄は既に入力済み（未上書き）` };
+
+    setNativeValue(input, value);
+    return { ok: true };
+  }
+
+  function visible(el) {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  async function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
 
-  function findOpenListbox() {
-    // Mantine Comboboxの listbox を広めに探索
-    return (
-      document.querySelector('[role="listbox"]') ||
-      document.querySelector('.mantine-Combobox-options') ||
-      document.querySelector('.mantine-Select-dropdown')
-    );
-  }
+  async function safePickMantineSelect(label, value) {
+    if (!value) return { ok: false, reason: `${label}が空（送信値なし）` };
 
-  async function safeFillText(label, value) {
     const input = findInputByLabelText(label);
-    if (!input) return { filled: false, reason: `${label}欄が見つかりません` };
+    if (!input) return { ok: false, reason: `${label}欄が見つかりません` };
 
     const current = (input.value || "").trim();
-    if (current) return { filled: false, reason: `${label}欄が既に入力済みです（安全のため未上書き）` };
+    if (current) return { ok: false, reason: `${label}は既に選択済み（未上書き）` };
 
-    setNativeValue(input, value);
-    return { filled: true };
-  }
-
-  async function safeFillSelect(label, value) {
-    const input = findInputByLabelText(label);
-    if (!input) return { filled: false, reason: `${label}欄が見つかりません` };
-
-    const current = (input.value || "").trim();
-    if (current) return { filled: false, reason: `${label}は既に選択済みです（安全のため未上書き）` };
-
-    // クリックして候補を開く
+    // 1) クリックでドロップダウンを開く
     input.focus();
     input.click();
+    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await sleep(80);
 
-    // DOMが出るまで少し待つ
-    await sleep(60);
+    // 2) listboxを探して、該当項目をクリック
+    for (let i = 0; i < 12; i++) {
+      const listboxes = Array.from(document.querySelectorAll('[role="listbox"]')).filter(visible);
+      const box = listboxes[0];
 
-    const listbox = findOpenListbox();
-    if (!listbox) {
-      // 候補DOMが見えない場合は setNativeValue を試す（ダメ元）
-      setNativeValue(input, value);
-      return { filled: true, fallback: true };
+      if (box) {
+        const opts = Array.from(
+          box.querySelectorAll('[role="option"], [data-combobox-option], div, li')
+        ).filter(visible);
+
+        const hit = opts.find((n) => (n.textContent || "").trim() === value);
+        if (hit) {
+          hit.click();
+          await sleep(80);
+
+          const after = (input.value || "").trim();
+          if (after) return { ok: true };
+        }
+      }
+
+      await sleep(80);
     }
 
-    const want = normalizeText(value);
-    const options = Array.from(listbox.querySelectorAll('[role="option"], .mantine-Combobox-option, .mantine-Select-item'));
-    const hit = options.find((el) => normalizeText(el.textContent) === want);
-
-    if (!hit) {
-      // 候補が見つからない：一旦入力だけは入れる（場合によっては確定されない）
-      setNativeValue(input, value);
-      // Enterで確定を試す
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-      return { filled: true, fallback: true };
-    }
-
-    hit.click();
-    return { filled: true };
+    // 3) 最後の手段：値だけ入れてイベント（選択として扱われない場合もある）
+    setNativeValue(input, value);
+    return { ok: (input.value || "").trim() === value, reason: "候補クリックは失敗（フォールバック入力）" };
   }
 
   chrome.runtime.onMessage.addListener((msg) => {
-    (async () => {
-      try {
-        if (!msg || msg.type !== MSG_TYPE) return;
-        if (!isTargetPage()) return;
+    try {
+      if (!msg || msg.type !== MSG_TYPE) return;
+      if (!isTargetPage()) return;
 
-        const title = (msg.fields?.title ?? "").toString().trim();
-        const adminName = (msg.fields?.adminName ?? "").toString().trim();
-        const displayGroup = (msg.fields?.displayGroup ?? "").toString().trim();
-        const category = (msg.fields?.category ?? "").toString().trim();
+      const fields = msg.fields || {};
+      const title = String(fields.title || "").trim();
+      const adminName = String(fields.adminName || "").trim();
+      const displayGroup = String(fields.displayGroup || "").trim();
+      const category = String(fields.category || "").trim();
 
-        const filled = [];
-        const skipped = [];
+      const done = [];
+      const skipped = [];
 
-        // タイトル（必須想定）
-        if (title) {
-          const r = await safeFillText("タイトル", title);
-          if (r.filled) filled.push("タイトル");
-          else if (r.reason) skipped.push(r.reason);
-        }
-
-        // 管理名称（任意）
-        if (adminName) {
-          const r = await safeFillText("管理名称", adminName);
-          if (r.filled) filled.push("管理名称");
-          else if (r.reason) skipped.push(r.reason);
-        }
-
-        // 表示グループ（Select）
-        if (displayGroup) {
-          const r = await safeFillSelect("表示グループ", displayGroup);
-          if (r.filled) filled.push("表示グループ");
-          else if (r.reason) skipped.push(r.reason);
-        }
-
-        // カテゴリ（Select）
-        if (category) {
-          const r = await safeFillSelect("カテゴリ", category);
-          if (r.filled) filled.push("カテゴリ");
-          else if (r.reason) skipped.push(r.reason);
-        }
-
-        if (filled.length > 0) {
-          toast(`入力完了：${filled.join(" / ")}`);
-        } else if (skipped.length > 0) {
-          toast(`未入力：${skipped[0]}`);
-        } else {
-          toast("未入力：受信データが空です");
-        }
-      } catch (e) {
-        console.warn("[cms_inject]", e);
-        toast("入力失敗（コンソール確認）");
+      if (title) {
+        const r = safeFillText("タイトル", title);
+        if (r.ok) done.push("タイトル");
+        else skipped.push(r.reason);
       }
-    })();
+
+      if (adminName) {
+        const r = safeFillText("管理名称", adminName);
+        if (r.ok) done.push("管理名称");
+        else skipped.push(r.reason);
+      }
+
+      // Mantine Select
+      (async () => {
+        if (displayGroup) {
+          const r = await safePickMantineSelect("表示グループ", displayGroup);
+          if (r.ok) done.push("表示グループ");
+          else skipped.push(r.reason);
+        }
+
+        if (category) {
+          const r = await safePickMantineSelect("カテゴリ", category);
+          if (r.ok) done.push("カテゴリ");
+          else skipped.push(r.reason);
+        }
+
+        if (done.length) {
+          toast(`入力完了：${done.join(" / ")}`);
+        } else {
+          toast("未入力（既に入力済み or 欄が未検出）");
+          if (skipped.length) console.warn("[cms_inject] skipped:", skipped);
+        }
+      })();
+    } catch (e) {
+      console.warn("[cms_inject]", e);
+      toast("入力失敗（コンソール確認）");
+    }
   });
 })();

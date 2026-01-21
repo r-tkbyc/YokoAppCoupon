@@ -6,21 +6,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       if (!msg || msg.type !== MSG_TYPE) return;
 
-      // CMSタブ候補を探す
       const tabs = await chrome.tabs.query({ url: `${CMS_URL_PREFIX}*` });
 
       if (!tabs || tabs.length === 0) {
         throw new Error("CMSタブが見つかりません（/store-coupons/new を開いてください）");
       }
 
-      // lastAccessed が最大のタブを採用（事故防止：最後に触ったタブ）
       const target = tabs.reduce((a, b) => {
         const al = a.lastAccessed ?? 0;
         const bl = b.lastAccessed ?? 0;
         return bl > al ? b : a;
       });
 
-      await chrome.tabs.sendMessage(target.id, msg);
+      try {
+        await chrome.tabs.sendMessage(target.id, msg);
+      } catch (err) {
+        // ここが「Receiving end does not exist」になりやすい
+        const m = String(err?.message || err);
+        throw new Error(
+          m.includes("Receiving end does not exist")
+            ? "CMS側の受け口が見つかりません（拡張機能を再読み込み→CMSタブを再読み込みしてください）"
+            : m
+        );
+      }
 
       sendResponse({ ok: true, tabId: target.id });
     } catch (e) {
@@ -29,5 +37,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
   })();
 
-  return true; // async
+  return true;
 });

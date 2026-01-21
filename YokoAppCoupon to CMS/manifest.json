@@ -5,7 +5,8 @@
   "description": "YokoAppCoupon(GitHub Pages) → 横浜CMS（新規クーポン）へ自動入力（タイトル/管理名称/表示グループ/カテゴリ）",
   "permissions": ["tabs"],
   "host_permissions": [
-    "https://front-admin.taspapp.takashimaya.co.jp/*"
+    "https://front-admin.taspapp.takashimaya.co.jp/*",
+    "https://r-tkbyc.github.io/*"
   ],
   "background": {
     "service_worker": "background.js"

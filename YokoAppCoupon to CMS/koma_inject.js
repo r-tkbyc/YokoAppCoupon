@@ -1,40 +1,39 @@
 (() => {
   const MSG_TYPE = "YK_COUPON_TO_CMS";
 
-  function toast(msg) {
-    // YokoAppCoupon(index.html) に toast() がある前提。無ければ console へ。
-    try {
-      if (typeof window.toast === "function") return window.toast(msg);
-    } catch {}
-    console.log("[toCMS]", msg);
-  }
-
   function findTitleSet() {
     return document.querySelector('.set[data-set="title"]');
   }
 
-  function getValue(sel) {
-    const el = document.querySelector(sel);
-    return (el?.value ?? "").toString().trim();
-  }
+  function getValues() {
+    const setEl = findTitleSet();
+    if (!setEl) return null;
 
-  function getTitleOutputValue(setEl) {
-    // 新：出力（タイトル）
-    const out = setEl.querySelector("textarea.output-title");
-    return (out?.value ?? "").toString().trim();
-  }
+    // ✅ index.html(v1.1.2) に合わせる
+    const outTitle = (setEl.querySelector("textarea.output-title")?.value ?? "").trim();
+    const outAdmin = (setEl.querySelector("textarea.output-admin")?.value ?? "").trim();
 
-  function getAdminOutputValue(setEl) {
-    // 新：出力（管理名称）
-    const out = setEl.querySelector("textarea.output-admin");
-    return (out?.value ?? "").toString().trim();
+    const displayGroup = (document.getElementById("displayGroup")?.value ?? "").trim();
+    const category = (document.getElementById("category")?.value ?? "").trim();
+
+    // 将来用（今はCMSへ未マッピングでもpayloadに入れてOK）
+    const division = (document.getElementById("division")?.value ?? "").trim();
+    const firstCome = (document.getElementById("firstCome")?.value ?? "").toString().trim();
+
+    return {
+      outTitle,
+      outAdmin,
+      displayGroup,
+      category,
+      division,
+      firstCome
+    };
   }
 
   function addToCmsButton(setEl) {
     const actions = setEl.querySelector(".set-head .actions");
     if (!actions) return;
 
-    // 既にあるなら何もしない
     if (actions.querySelector(".btn-tocms")) return;
 
     const convertBtn = actions.querySelector(".btn-convert");
@@ -42,48 +41,51 @@
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "btn-tocms"; // 既存buttonスタイルを継承（余計な色クラスは付けない）
+    btn.className = "btn-tocms";
     btn.textContent = "toCMS";
-    btn.title = "CMSへ流し込み（タイトル/管理名称/表示グループ/カテゴリ）";
+    btn.title = "CMSへ流し込み";
 
-    // 「変換」の左に差し込む
+    // 「変換」の左へ
     actions.insertBefore(btn, convertBtn);
 
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
 
-      // 送信値（index.htmlの現状DOMに合わせる）
-      const title = getTitleOutputValue(setEl);
-      const adminName = getAdminOutputValue(setEl);
-      const displayGroup = getValue("#displayGroup");
-      const category = getValue("#category");
+      const v = getValues();
+      if (!v) return;
 
-      if (!title) {
-        toast("出力（タイトル）が空です（先に変換してください）");
+      // 出力が空でも、今回は「ダイアログ出さない」方針なので何もしない（consoleだけ）
+      if (!v.outTitle && !v.outAdmin) {
+        console.warn("[toCMS] outputs are empty (convert first)");
         return;
       }
 
       try {
         const res = await chrome.runtime.sendMessage({
           type: MSG_TYPE,
-          fields: { title, adminName, displayGroup, category }
+          fields: {
+            title: v.outTitle,
+            adminName: v.outAdmin,
+            displayGroup: v.displayGroup,
+            category: v.category,
+            division: v.division,
+            firstCome: v.firstCome
+          }
         });
 
-        // ✅成功時は何も出さない（要望通り）
-        if (res && res.ok) return;
-
-        // ✅CMSタブが見つからない時だけダイアログ（toast）
-        const err = String(res?.error || "unknown");
-        if (err.includes("CMSタブが見つかりません")) {
-          toast(err);
-        } else {
-          // それ以外は静かにconsoleへ
-          console.warn("[toCMS] send failed:", err);
+        if (!res?.ok) {
+          const err = String(res?.error || "unknown");
+          // ✅ CMSタブが無い時だけダイアログ
+          if (err.includes("CMSタブ") || err.includes("見つかりません")) {
+            alert(err);
+          } else {
+            console.warn("[toCMS] send failed:", err);
+          }
         }
       } catch (err) {
-        const msg = String(err?.message || err);
-        if (msg.includes("CMSタブが見つかりません")) toast(msg);
-        else console.warn("[toCMS] send failed:", err);
+        const m = String(err?.message || err);
+        // 基本は黙る。致命（拡張死んでる等）は console へ
+        console.warn("[toCMS] send failed:", m);
       }
     });
   }
@@ -94,10 +96,8 @@
     addToCmsButton(setEl);
   }
 
-  // 初回
   boot();
 
-  // SPA/DOM差し替えに備えて監視（軽量）
   const mo = new MutationObserver(() => boot());
   mo.observe(document.documentElement, { childList: true, subtree: true });
 })();
