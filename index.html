@@ -214,10 +214,12 @@
     </section>
 
     <!-- フロア・売場 / ブランド名 -->
-    <section class="set" data-set="brand">
+    <section class="set" data-set="floorBrand">
       <div class="set-head">
         <h2 class="set-title">フロア・売場 / ブランド名</h2>
-        <div class="actions"></div>
+        <div class="actions">
+          <button class="btn-convert-floor primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
+        </div>
       </div>
 
       <!-- 1行目：フロア・売場 -->
@@ -432,6 +434,58 @@
     }
 
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
+    setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
+  })();
+
+  // フロア・売場 / ブランド名：フロア抽出 + 「売場［ブランド］」
+  (function(){
+    const setEl = document.querySelector('.set[data-set="floorBrand"]');
+    if(!setEl) return;
+
+    const inputFloor = setEl.querySelector('.input-floor');
+    const inputBrand = setEl.querySelector('.input-brand');
+    const outFloor   = setEl.querySelector('.output-floor');
+    const outBrand   = setEl.querySelector('.output-brand');
+    const btnConvert = setEl.querySelector('.btn-convert-floor');
+
+    function parseFloorPlace(raw){
+      const s = transform(raw).trim();
+      if (!s) return { floor: '', place: '' };
+
+      // 例:
+      // 7階 健康の庭
+      // 地下1階 惣菜
+      // 3階
+      const m = s.match(/^(地下\s*\d+階|\d+階|屋上)\s*(.*)$/);
+      if (m){
+        const floor = (m[1] || '').replace(/\s+/g, '');
+        const place = (m[2] || '').trim();
+        return { floor, place };
+      }
+      // 想定外は丸ごとフロア扱い（壊さない）
+      return { floor: s, place: '' };
+    }
+
+    function onConvert(){
+      const rawFloor = inputFloor?.value || '';
+      const rawBrand = inputBrand?.value || '';
+
+      const { floor, place } = parseFloorPlace(rawFloor);
+      const brand = transform(rawBrand).trim();
+
+      outFloor.value = floor;
+
+      if (brand){
+        outBrand.value = place ? `${place}［${brand}］` : `［${brand}］`;
+      } else {
+        // ブランド未入力なら売場だけ出すのも危険なので空にする
+        outBrand.value = '';
+      }
+
+      toast('変換しました');
+    }
+
+    if (btnConvert) btnConvert.addEventListener('click', onConvert);
     setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
