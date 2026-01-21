@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.3 - 2026-01-21 -->
-  <meta name="app-version" content="v1.1.3">
+  <!-- Text Formatter v1.1.4 - 2026-01-21 -->
+  <meta name="app-version" content="v1.1.4">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -93,6 +93,18 @@
   @media (min-width: 960px){
     .quad-row{
       grid-template-columns: 1fr 1fr 1fr 1fr;
+    }
+  }
+
+  /* 3列（クーポン利用条件用） */
+  .tri-row{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: var(--gap);
+  }
+  @media (min-width: 960px){
+    .tri-row{
+      grid-template-columns: 1fr 1fr 1fr;
     }
   }
 
@@ -287,12 +299,40 @@
         </section>
       </div>
     </section>
+
+    <!-- クーポン利用条件 -->
+    <section class="set" data-set="usage">
+      <div class="set-head">
+        <h2 class="set-title">クーポン利用条件</h2>
+        <div class="actions"></div>
+      </div>
+
+      <div class="tri-row">
+        <section class="panel">
+          <h2>入力（会員ひとりが利用可能な回数）</h2>
+          <input id="perMemberLimit" type="number" min="0" step="1" placeholder="例：1">
+        </section>
+
+        <section class="panel">
+          <h2>入力（全体の利用回数制限）</h2>
+          <select id="overallLimit">
+            <option value="なし" selected>なし</option>
+            <option value="あり">あり</option>
+          </select>
+        </section>
+
+        <section class="panel">
+          <h2>入力（全体で利用可能な回数）</h2>
+          <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で反映）">
+        </section>
+      </div>
+    </section>
   </main>
 
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.3";
+  const APP_VERSION = "v1.1.4";
   const APP_BUILD = "2026-01-21";
   const PRICE_SPACE_RULE_ENABLED = false;
 
@@ -466,14 +506,21 @@
     const inNotes  = notesSet?.querySelector('.input-notes');
     const outNotes = notesSet?.querySelector('.output-notes');
 
-    function buildTitleResult(baseText){
-      let t = transform(baseText).trim();
+    // usage
+    const overallLimitEl = document.getElementById('overallLimit');
+    const overallTotalEl = document.getElementById('overallTotal');
 
-      // 先着人数（数値が入ってる時だけ）
+    function parseFirstComeNumber(){
       const nRaw = (firstComeEl?.value ?? '').toString().trim();
-      const n = nRaw.replace(/[^\d]/g, '');
-      if (n) t += `※先着${n}名様`;
+      const digits = nRaw.replace(/[^\d]/g, '');
+      const n = digits ? Number(digits) : 0;
+      // 0 は空扱い
+      return (Number.isFinite(n) && n >= 1) ? n : 0;
+    }
 
+    function buildTitleResult(baseText, firstComeNum){
+      let t = transform(baseText).trim();
+      if (firstComeNum >= 1) t += `※先着${firstComeNum}名様`;
       return t;
     }
 
@@ -500,10 +547,25 @@
       return place || '';
     }
 
+    function applyUsageFromFirstCome(firstComeNum){
+      // 変換押下時のみ反映
+      if (!overallLimitEl || !overallTotalEl) return;
+
+      if (firstComeNum >= 1){
+        overallLimitEl.value = 'あり';
+        overallTotalEl.value = String(firstComeNum);
+      } else {
+        overallLimitEl.value = 'なし';
+        overallTotalEl.value = '';
+      }
+    }
+
     function onConvert(){
+      const firstComeNum = parseFirstComeNumber();
+
       // タイトル/管理名称
       const src = input.value || '';
-      const titleResult = buildTitleResult(src);
+      const titleResult = buildTitleResult(src, firstComeNum);
 
       // 部門（未選択なら付けない）
       const div = (divisionEl?.value ?? '').toString().trim();
@@ -523,6 +585,9 @@
       // ご利用条件 / 注意事項（独自ルールなし：transformのみ）
       if (outTerms && inTerms) outTerms.value = transform(inTerms.value || '').replace(/[ \t]+$/gm,'').trimEnd();
       if (outNotes && inNotes) outNotes.value = transform(inNotes.value || '').replace(/[ \t]+$/gm,'').trimEnd();
+
+      // クーポン利用条件（先着人数から反映）
+      applyUsageFromFirstCome(firstComeNum);
 
       toast('変換しました');
     }
