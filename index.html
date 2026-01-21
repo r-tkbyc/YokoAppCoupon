@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.4 - 2026-01-21 -->
-  <meta name="app-version" content="v1.1.4">
+  <!-- Text Formatter v1.1.6 - 2026-01-21 -->
+  <meta name="app-version" content="v1.1.6">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -603,6 +603,56 @@
 
   // 右上バージョン＝クリア（全部クリア）
   (function(){
+    function setSelectByValueOrText(sel, desired){
+      if (!sel) return;
+      const opts = Array.from(sel.options || []);
+      const hit = opts.find(o => o.value === desired) || opts.find(o => (o.textContent || '').trim() === desired);
+      if (hit) sel.value = hit.value;
+    }
+
+    function setFieldByPanelTitle(panelTitle, value){
+      const panels = Array.from(document.querySelectorAll('.panel'));
+      for (const p of panels){
+        const h2 = p.querySelector('h2');
+        if (!h2) continue;
+        const t = (h2.textContent || '').trim();
+        if (t !== panelTitle) continue;
+
+        const el = p.querySelector('input, textarea, select');
+        if (!el) return;
+
+        if (el.tagName === 'SELECT') {
+          setSelectByValueOrText(el, value);
+        } else {
+          el.value = value;
+        }
+        return;
+      }
+    }
+
+    function applyDefaults(){
+      // カテゴリのデフォルト：アプリクーポン
+      setSelectByValueOrText(document.getElementById('category'), 'アプリクーポン');
+
+      // 会員ひとりが利用可能な回数のデフォルト：1
+      // まずはIDで拾う（もしIDが違っても下のパネル見出しfallbackで拾う）
+      const idCandidates = [
+        'memberOnce','memberCount','memberLimit','memberLimitPerUser','perMemberCount',
+        'usePerMember','limitPerMember','memberTimes','memberUseCount'
+      ];
+      let found = null;
+      for (const id of idCandidates){
+        const el = document.getElementById(id);
+        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) { found = el; break; }
+      }
+      if (found) {
+        found.value = '1';
+      } else {
+        // panel見出しで拾う（あなたのUIの見出しがこれ）
+        setFieldByPanelTitle('入力（会員ひとりが利用可能な回数）', '1');
+      }
+    }
+
     function clearAll(){
       var nodes = document.querySelectorAll('input, textarea, select');
       nodes.forEach(function(el){
@@ -610,8 +660,13 @@
         else if (el.type === 'checkbox' || el.type === 'radio') el.checked = false;
         else el.value = '';
       });
+
+      // ★ ここが追加：デフォルト値を復元
+      applyDefaults();
+
       toast('クリアしました');
     }
+
     var vb = document.getElementById('ver');
     if (vb) vb.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
   })();
