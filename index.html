@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.3 - 2026-01-21 -->
-  <meta name="app-version" content="v1.1.3">
+  <!-- Text Formatter v1.1.2 - 2026-01-20 -->
+  <meta name="app-version" content="v1.1.2">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -96,6 +96,18 @@
     }
   }
 
+  /* 3列用（クーポン利用条件） */
+  .tri-row{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: var(--gap);
+  }
+  @media (min-width: 960px){
+    .tri-row{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+  }
+
   input, select{
     width: 100%;
     height: var(--btn-h);
@@ -137,7 +149,6 @@
       <div class="set-head">
         <h2 class="set-title">タイトル / 管理名称</h2>
         <div class="actions">
-          <!-- ※toCMSボタンは拡張側（koma_inject）でここに挿入する想定 -->
           <button class="btn-convert primary" title="変換（Ctrl/Cmd+Enter）">&nbsp;変換&nbsp;</button>
         </div>
       </div>
@@ -214,76 +225,30 @@
       </div>
     </section>
 
-    <!-- フロア・売場 / ブランド名 -->
-    <section class="set" data-set="floor-brand">
+    <!-- クーポン利用条件 -->
+    <section class="set" data-set="usage">
       <div class="set-head">
-        <h2 class="set-title">フロア・売場 / ブランド名</h2>
+        <h2 class="set-title">クーポン利用条件</h2>
         <div class="actions"></div>
       </div>
 
-      <!-- 1行目：フロア・売場 -->
-      <div class="row">
-        <section class="panel">
-          <h2>入力（フロア・売場）</h2>
-          <textarea class="input-floor" placeholder="1階 化粧品"></textarea>
+      <div class="tri-row">
+        <section class="panel" data-field="per-member">
+          <h2>入力（会員ひとりが利用可能な回数）</h2>
+          <input id="perMemberLimit" type="number" min="0" step="1" placeholder="例：1">
         </section>
 
-        <section class="panel">
-          <h2>出力（ブランド入居フロア）</h2>
-          <textarea class="output-floor" placeholder="ここに整形結果が表示されます" readonly></textarea>
-        </section>
-      </div>
-
-      <!-- 2行目：ブランド名 -->
-      <div class="row">
-        <section class="panel">
-          <h2>入力（ブランド名）</h2>
-          <textarea class="input-brand" placeholder="エスト"></textarea>
+        <section class="panel" data-field="overall-limit-toggle">
+          <h2>入力（全体の利用回数制限）</h2>
+          <select id="overallLimit">
+            <option value="なし" selected>なし</option>
+            <option value="あり">あり</option>
+          </select>
         </section>
 
-        <section class="panel">
-          <h2>出力（ブランド名）</h2>
-          <textarea class="output-brand" placeholder="ここに整形結果が表示されます" readonly></textarea>
-        </section>
-      </div>
-    </section>
-
-    <!-- ご利用条件 -->
-    <section class="set" data-set="terms">
-      <div class="set-head">
-        <h2 class="set-title">ご利用条件</h2>
-        <div class="actions"></div>
-      </div>
-
-      <div class="row">
-        <section class="panel">
-          <h2>入力</h2>
-          <textarea class="input-terms" placeholder="ここにテキストをペースト"></textarea>
-        </section>
-
-        <section class="panel">
-          <h2>出力</h2>
-          <textarea class="output-terms" placeholder="ここに整形結果が表示されます" readonly></textarea>
-        </section>
-      </div>
-    </section>
-
-    <!-- 注意事項 -->
-    <section class="set" data-set="notes">
-      <div class="set-head">
-        <h2 class="set-title">注意事項</h2>
-        <div class="actions"></div>
-      </div>
-
-      <div class="row">
-        <section class="panel">
-          <h2>入力</h2>
-          <textarea class="input-notes" placeholder="ここにテキストをペースト"></textarea>
-        </section>
-
-        <section class="panel">
-          <h2>出力</h2>
-          <textarea class="output-notes" placeholder="ここに整形結果が表示されます" readonly></textarea>
+        <section class="panel" data-field="overall-total">
+          <h2>入力（全体で利用可能な回数）</h2>
+          <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で自動反映）">
         </section>
       </div>
     </section>
@@ -292,8 +257,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.3";
-  const APP_BUILD = "2026-01-21";
+  const APP_VERSION = "v1.1.2";
+  const APP_BUILD = "2026-01-20";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -434,106 +399,71 @@
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
   }
 
-  // =============================
-  //  変換（タイトルブロックのボタンで全体を更新）
-  // =============================
+  // タイトル/管理名称：先着人数があれば末尾に「※先着N名様」
   (function(){
-    const titleSet = document.querySelector('.set[data-set="title"]');
-    if(!titleSet) return;
+    const setEl = document.querySelector('.set[data-set="title"]');
+    if(!setEl) return;
 
-    const input  = titleSet.querySelector('.input');
-    const outTitle = titleSet.querySelector('.output-title');
-    const outAdmin = titleSet.querySelector('.output-admin');
-    const btnConvert = titleSet.querySelector('.btn-convert');
+    const input  = setEl.querySelector('.input');
+    const outTitle = setEl.querySelector('.output-title');
+    const outAdmin = setEl.querySelector('.output-admin');
+    const btnConvert = setEl.querySelector('.btn-convert');
 
     // meta
     const divisionEl = document.getElementById('division');
     const firstComeEl = document.getElementById('firstCome');
 
-    // floor/brand
-    const floorSet = document.querySelector('.set[data-set="floor-brand"]');
-    const inFloor   = floorSet?.querySelector('.input-floor');
-    const outFloor  = floorSet?.querySelector('.output-floor');
-    const inBrand   = floorSet?.querySelector('.input-brand');
-    const outBrand  = floorSet?.querySelector('.output-brand');
+    // usage
+    const overallLimitEl = document.getElementById('overallLimit');
+    const overallTotalEl = document.getElementById('overallTotal');
 
-    // terms / notes
-    const termsSet = document.querySelector('.set[data-set="terms"]');
-    const inTerms  = termsSet?.querySelector('.input-terms');
-    const outTerms = termsSet?.querySelector('.output-terms');
-
-    const notesSet = document.querySelector('.set[data-set="notes"]');
-    const inNotes  = notesSet?.querySelector('.input-notes');
-    const outNotes = notesSet?.querySelector('.output-notes');
-
-    function buildTitleResult(baseText){
-      let t = transform(baseText).trim();
-
-      // 先着人数（数値が入ってる時だけ）
+    function parseFirstCome(){
       const nRaw = (firstComeEl?.value ?? '').toString().trim();
-      const n = nRaw.replace(/[^\d]/g, '');
-      if (n) t += `※先着${n}名様`;
+      const digits = nRaw.replace(/[^\d]/g, '');
+      const nNum = digits ? Number(digits) : 0;
+      // 0は空扱い（未入力扱い）
+      return (Number.isFinite(nNum) && nNum >= 1) ? nNum : 0;
+    }
 
+    function buildTitleResult(baseText, firstComeNum){
+      let t = transform(baseText).trim();
+      if (firstComeNum >= 1) t += `※先着${firstComeNum}名様`;
       return t;
     }
 
-    function parseFloorAndPlace(floorText){
-      const normalized = transform(floorText).replace(/[ 　]+/g,' ').trim();
-      if (!normalized) return { floor: '', place: '' };
+    function applyCouponUsage(firstComeNum){
+      // 変換ボタン押下時のみ反映
+      if (!overallLimitEl || !overallTotalEl) return;
 
-      // 先頭に「地下N階 / N階 / 屋上」が来る想定
-      const m = normalized.match(/^(地下\s*\d+階|地下\d+階|\d+階|屋上)\s*(.*)$/);
-      if (!m) return { floor: '', place: normalized };
-
-      const floor = m[1].replace(/[ 　]+/g,''); // 地下 1階 → 地下1階
-      const place = (m[2] || '').trim();
-      return { floor, place };
-    }
-
-    function buildBrandResult(place, brandText){
-      const b = transform(brandText).trim();
-      if (b){
-        if (place) return `${place}［${b}］`;
-        return `［${b}］`;
+      if (firstComeNum >= 1){
+        overallLimitEl.value = 'あり';
+        overallTotalEl.value = String(firstComeNum);
+      } else {
+        overallLimitEl.value = 'なし';
+        overallTotalEl.value = '';
       }
-      // ブランド未入力なら「売場」だけ（例：健康の庭）
-      return place || '';
     }
 
     function onConvert(){
-      // タイトル/管理名称
       const src = input.value || '';
-      const titleResult = buildTitleResult(src);
+      const firstComeNum = parseFirstCome();
+
+      const titleResult = buildTitleResult(src, firstComeNum);
 
       // 部門（未選択なら付けない）
       const div = (divisionEl?.value ?? '').toString().trim();
 
-      if (outTitle) outTitle.value = titleResult;
-      if (outAdmin) outAdmin.value = (div ? (div + titleResult) : titleResult);
+      outTitle.value = titleResult;
+      outAdmin.value = (div ? (div + titleResult) : titleResult);
 
-      // フロア・売場 / ブランド名
-      if (inFloor && outFloor && outBrand){
-        const { floor, place } = parseFloorAndPlace(inFloor.value || '');
-        outFloor.value = floor;
-
-        const brandText = inBrand ? (inBrand.value || '') : '';
-        outBrand.value = buildBrandResult(place, brandText);
-      }
-
-      // ご利用条件 / 注意事項（独自ルールなし：transformのみ）
-      if (outTerms && inTerms) outTerms.value = transform(inTerms.value || '').replace(/[ \t]+$/gm,'').trimEnd();
-      if (outNotes && inNotes) outNotes.value = transform(inNotes.value || '').replace(/[ \t]+$/gm,'').trimEnd();
+      // クーポン利用条件へ反映
+      applyCouponUsage(firstComeNum);
 
       toast('変換しました');
     }
 
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
-    titleSet.addEventListener('keydown', (e)=>{
-      if((e.ctrlKey||e.metaKey) && e.key==='Enter'){
-        e.preventDefault();
-        onConvert();
-      }
-    });
+    setEl.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); onConvert(); }});
   })();
 
   // 右上バージョン＝クリア（全部クリア）
