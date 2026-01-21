@@ -219,7 +219,7 @@
           <h2>カテゴリ</h2>
           <select id="category">
             <option value="" selected>選択してください</option>
-            <option value="アプリクーポン">アプリクーポン</option>
+            <option value="アプリクーポン" selected>アプリクーポン</option>
             <option value="アプリ会員様限定ポイントアップ">アプリ会員様限定ポイントアップ</option>
           </select>
         </section>
@@ -310,7 +310,7 @@
       <div class="tri-row">
         <section class="panel">
           <h2>入力（会員ひとりが利用可能な回数）</h2>
-          <input id="perMemberLimit" type="number" min="0" step="1" placeholder="例：1">
+          <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1">
         </section>
 
         <section class="panel">
@@ -332,7 +332,7 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.4";
+  const APP_VERSION = "v1.1.5";
   const APP_BUILD = "2026-01-21";
   const PRICE_SPACE_RULE_ENABLED = false;
 
