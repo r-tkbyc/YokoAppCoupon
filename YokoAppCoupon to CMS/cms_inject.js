@@ -2,161 +2,197 @@
   const MSG_TYPE = "YK_COUPON_TO_CMS";
   const PAGE_PREFIX = "https://front-admin.taspapp.takashimaya.co.jp/store-coupons/new";
 
-  function log(...args) { console.log("[cms_inject]", ...args); }
-  function warn(...args) { console.warn("[cms_inject]", ...args); }
-
-  function isOnTargetPage() {
+  function isTargetPage() {
     return location.href.startsWith(PAGE_PREFIX);
   }
 
-  function normalizeLabelText(s) {
-    return (s || "")
-      .replace(/[\u00A0\u3000]/g, " ")
-      .replace(/\*/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  function normalizeText(s) {
+    return String(s || "")
+      .replace(/\s+/g, "")
+      .replace(/[*＊]/g, "")
+      .replace(/[：:]/g, "");
+  }
+
+  function ensureToast() {
+    let el = document.getElementById("__yk_tocms_toast");
+    if (el) return el;
+
+    el = document.createElement("div");
+    el.id = "__yk_tocms_toast";
+    el.style.cssText = [
+      "position:fixed",
+      "left:50%",
+      "bottom:24px",
+      "transform:translateX(-50%)",
+      "background:rgba(20,20,20,.92)",
+      "border:1px solid rgba(255,255,255,.18)",
+      "color:#fff",
+      "padding:10px 14px",
+      "border-radius:10px",
+      "font-size:12px",
+      "z-index:2147483647",
+      "opacity:0",
+      "pointer-events:none",
+      "transition:opacity .2s ease"
+    ].join(";");
+
+    document.documentElement.appendChild(el);
+    return el;
+  }
+
+  function toast(msg) {
+    const el = ensureToast();
+    el.textContent = msg;
+    el.style.opacity = "1";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => (el.style.opacity = "0"), 1400);
   }
 
   function findInputByLabelText(labelText) {
-    const want = normalizeLabelText(labelText);
+    const want = normalizeText(labelText);
 
-    // Mantineの label[for] -> input#id を優先
-    const labels = Array.from(document.querySelectorAll("label"));
+    // label[for] → #id（Mantineの構造に合わせる）
+    const labels = Array.from(document.querySelectorAll("label[for]"));
     for (const lab of labels) {
-      const t = normalizeLabelText(lab.textContent);
-      if (t !== want) continue;
-
-      const forId = lab.getAttribute("for");
-      if (forId) {
-        const el = document.getElementById(forId);
-        if (el) return el;
-      }
-
-      // fallback: 近傍から探す
-      const root = lab.closest(".mantine-InputWrapper-root") || lab.parentElement;
-      if (root) {
-        const input = root.querySelector("input, textarea, select");
-        if (input) return input;
+      const t = normalizeText(lab.textContent);
+      if (t === want) {
+        const id = lab.getAttribute("for");
+        if (!id) continue;
+        const el = document.getElementById(id);
+        if (el && el.tagName === "INPUT") return el;
       }
     }
-
-    // 最後のfallback：placeholder
-    const byPh = document.querySelector(`input[placeholder="${labelText}"]`);
-    return byPh || null;
+    return null;
   }
 
-  function setNativeValue(el, value) {
-    const proto = Object.getPrototypeOf(el);
-    const desc = Object.getOwnPropertyDescriptor(proto, "value");
-    if (desc?.set) desc.set.call(el, value);
-    else el.value = value;
-  }
+  function setNativeValue(input, value) {
+    // React/Mantineに確実に認識させる
+    const setter =
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set ||
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
 
-  function dispatchInputEvents(el) {
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+    if (setter) setter.call(input, value);
+    else input.value = value;
+
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function sleep(ms) {
-    return new Promise(r => setTimeout(r, ms));
+    return new Promise((r) => setTimeout(r, ms));
   }
 
-  async function selectMantineOptionByText(inputEl, optionText) {
-    const want = normalizeLabelText(optionText);
-    if (!want) return false;
-
-    // クリックしてドロップダウンを出す
-    try {
-      inputEl.scrollIntoView({ block: "center" });
-    } catch {}
-    inputEl.focus();
-    inputEl.click();
-
-    // typeahead：値を入れて候補を出す
-    setNativeValue(inputEl, optionText);
-    dispatchInputEvents(inputEl);
-
-    // 候補の描画を少し待つ（Mantineはportalでbody直下に出ることが多い）
-    await sleep(80);
-
-    // role=option を優先
-    const optionEls = Array.from(document.querySelectorAll('[role="option"], [data-combobox-option], [data-combobox-option-value]'));
-    const hit = optionEls.find(el => normalizeLabelText(el.textContent) === want);
-
-    if (hit) {
-      hit.scrollIntoView?.({ block: "nearest" });
-      hit.click();
-      await sleep(30);
-      return normalizeLabelText(inputEl.value) === want;
-    }
-
-    // それでも見つからない場合：Enter確定を試す
-    const evDown = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true });
-    const evUp = new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true });
-    inputEl.dispatchEvent(evDown);
-    inputEl.dispatchEvent(evUp);
-    await sleep(50);
-
-    // 反映されていれば成功扱い（完全一致でなくても、値が入っていればOKにする）
-    return normalizeLabelText(inputEl.value).length > 0;
+  function findOpenListbox() {
+    // Mantine Comboboxの listbox を広めに探索
+    return (
+      document.querySelector('[role="listbox"]') ||
+      document.querySelector('.mantine-Combobox-options') ||
+      document.querySelector('.mantine-Select-dropdown')
+    );
   }
 
-  async function safeFillTextByLabel(label, value, doneList) {
-    const v = (value || "").trim();
-    if (!v) return;
+  async function safeFillText(label, value) {
+    const input = findInputByLabelText(label);
+    if (!input) return { filled: false, reason: `${label}欄が見つかりません` };
 
-    const el = findInputByLabelText(label);
-    if (!el) {
-      warn("input not found:", label);
-      return;
-    }
-    if ((el.value || "").trim() !== "") return; // 空欄のみ
+    const current = (input.value || "").trim();
+    if (current) return { filled: false, reason: `${label}欄が既に入力済みです（安全のため未上書き）` };
 
-    setNativeValue(el, v);
-    dispatchInputEvents(el);
-    doneList.push(label);
+    setNativeValue(input, value);
+    return { filled: true };
   }
 
-  async function safeSelectByLabel(label, value, doneList) {
-    const v = (value || "").trim();
-    if (!v) return;
+  async function safeFillSelect(label, value) {
+    const input = findInputByLabelText(label);
+    if (!input) return { filled: false, reason: `${label}欄が見つかりません` };
 
-    const el = findInputByLabelText(label);
-    if (!el) {
-      warn("select input not found:", label);
-      return;
+    const current = (input.value || "").trim();
+    if (current) return { filled: false, reason: `${label}は既に選択済みです（安全のため未上書き）` };
+
+    // クリックして候補を開く
+    input.focus();
+    input.click();
+
+    // DOMが出るまで少し待つ
+    await sleep(60);
+
+    const listbox = findOpenListbox();
+    if (!listbox) {
+      // 候補DOMが見えない場合は setNativeValue を試す（ダメ元）
+      setNativeValue(input, value);
+      return { filled: true, fallback: true };
     }
-    if ((el.value || "").trim() !== "") return; // 既に入ってるなら触らない
 
-    const ok = await selectMantineOptionByText(el, v);
-    if (ok) doneList.push(label);
-    else warn("select failed:", label, v);
+    const want = normalizeText(value);
+    const options = Array.from(listbox.querySelectorAll('[role="option"], .mantine-Combobox-option, .mantine-Select-item'));
+    const hit = options.find((el) => normalizeText(el.textContent) === want);
+
+    if (!hit) {
+      // 候補が見つからない：一旦入力だけは入れる（場合によっては確定されない）
+      setNativeValue(input, value);
+      // Enterで確定を試す
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+      return { filled: true, fallback: true };
+    }
+
+    hit.click();
+    return { filled: true };
   }
 
   chrome.runtime.onMessage.addListener((msg) => {
-    if (!isOnTargetPage()) return;
-    if (!msg || msg.__type !== MSG_TYPE) return;
-
     (async () => {
-      log("received", msg);
+      try {
+        if (!msg || msg.type !== MSG_TYPE) return;
+        if (!isTargetPage()) return;
 
-      const done = [];
+        const title = (msg.fields?.title ?? "").toString().trim();
+        const adminName = (msg.fields?.adminName ?? "").toString().trim();
+        const displayGroup = (msg.fields?.displayGroup ?? "").toString().trim();
+        const category = (msg.fields?.category ?? "").toString().trim();
 
-      // テキスト
-      await safeFillTextByLabel("タイトル", msg.title, done);
-      await safeFillTextByLabel("管理名称", msg.admin_name, done);
+        const filled = [];
+        const skipped = [];
 
-      // セレクト（Mantine Select）
-      await safeSelectByLabel("表示グループ", msg.display_group, done);
-      await safeSelectByLabel("カテゴリ", msg.category, done);
+        // タイトル（必須想定）
+        if (title) {
+          const r = await safeFillText("タイトル", title);
+          if (r.filled) filled.push("タイトル");
+          else if (r.reason) skipped.push(r.reason);
+        }
 
-      if (done.length > 0) {
-        alert(`入力完了：${done.join(" / ")}`);
-      } else {
-        alert("入力対象がありません（または既に入力済みです）");
+        // 管理名称（任意）
+        if (adminName) {
+          const r = await safeFillText("管理名称", adminName);
+          if (r.filled) filled.push("管理名称");
+          else if (r.reason) skipped.push(r.reason);
+        }
+
+        // 表示グループ（Select）
+        if (displayGroup) {
+          const r = await safeFillSelect("表示グループ", displayGroup);
+          if (r.filled) filled.push("表示グループ");
+          else if (r.reason) skipped.push(r.reason);
+        }
+
+        // カテゴリ（Select）
+        if (category) {
+          const r = await safeFillSelect("カテゴリ", category);
+          if (r.filled) filled.push("カテゴリ");
+          else if (r.reason) skipped.push(r.reason);
+        }
+
+        if (filled.length > 0) {
+          toast(`入力完了：${filled.join(" / ")}`);
+        } else if (skipped.length > 0) {
+          toast(`未入力：${skipped[0]}`);
+        } else {
+          toast("未入力：受信データが空です");
+        }
+      } catch (e) {
+        console.warn("[cms_inject]", e);
+        toast("入力失敗（コンソール確認）");
       }
     })();
   });
-
-  log("cms_inject loaded");
 })();

@@ -1,34 +1,33 @@
+const CMS_URL_PREFIX = "https://front-admin.taspapp.takashimaya.co.jp/store-coupons/new";
 const MSG_TYPE = "YK_COUPON_TO_CMS";
-const CMS_URL_PREFIX = "https://front-admin.taspapp.takashimaya.co.jp";
-const CMS_NEW_PATH = "/store-coupons/new";
 
-function log(...args) { console.log("[background]", ...args); }
-
-async function findBestCmsTab() {
-  const tabs = await chrome.tabs.query({ url: CMS_URL_PREFIX + "/*" });
-  const candidates = tabs.filter(t => {
-    try {
-      const u = new URL(t.url);
-      return u.origin === CMS_URL_PREFIX && u.pathname === CMS_NEW_PATH;
-    } catch {
-      return false;
-    }
-  });
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
-  return candidates[0];
-}
-
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (!msg || msg.__type !== MSG_TYPE) return;
-
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    const tab = await findBestCmsTab();
-    if (!tab?.id) {
-      log("CMSタブが見つかりません");
-      return;
+    try {
+      if (!msg || msg.type !== MSG_TYPE) return;
+
+      // CMSタブ候補を探す
+      const tabs = await chrome.tabs.query({ url: `${CMS_URL_PREFIX}*` });
+
+      if (!tabs || tabs.length === 0) {
+        throw new Error("CMSタブが見つかりません（/store-coupons/new を開いてください）");
+      }
+
+      // lastAccessed が最大のタブを採用（事故防止：最後に触ったタブ）
+      const target = tabs.reduce((a, b) => {
+        const al = a.lastAccessed ?? 0;
+        const bl = b.lastAccessed ?? 0;
+        return bl > al ? b : a;
+      });
+
+      await chrome.tabs.sendMessage(target.id, msg);
+
+      sendResponse({ ok: true, tabId: target.id });
+    } catch (e) {
+      console.warn("[background]", e);
+      sendResponse({ ok: false, error: String(e?.message || e) });
     }
-    log("forward to CMS tab", tab.id, msg);
-    chrome.tabs.sendMessage(tab.id, msg);
   })();
+
+  return true; // async
 });
