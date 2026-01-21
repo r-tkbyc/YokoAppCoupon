@@ -5,35 +5,26 @@
     return document.querySelector('.set[data-set="title"]');
   }
 
-  function getValues() {
-    const setEl = findTitleSet();
-    if (!setEl) return null;
-
-    // ✅ index.html(v1.1.2) に合わせる
-    const outTitle = (setEl.querySelector("textarea.output-title")?.value ?? "").trim();
-    const outAdmin = (setEl.querySelector("textarea.output-admin")?.value ?? "").trim();
-
-    const displayGroup = (document.getElementById("displayGroup")?.value ?? "").trim();
-    const category = (document.getElementById("category")?.value ?? "").trim();
-
-    // 将来用（今はCMSへ未マッピングでもpayloadに入れてOK）
-    const division = (document.getElementById("division")?.value ?? "").trim();
-    const firstCome = (document.getElementById("firstCome")?.value ?? "").toString().trim();
-
+  function getOutputs(setEl) {
+    const titleEl = setEl.querySelector("textarea.output-title");
+    const adminEl = setEl.querySelector("textarea.output-admin");
     return {
-      outTitle,
-      outAdmin,
-      displayGroup,
-      category,
-      division,
-      firstCome
+      title: (titleEl?.value ?? "").trim(),
+      admin: (adminEl?.value ?? "").trim()
     };
+  }
+
+  function getMetaValues() {
+    const displayGroup = (document.getElementById("displayGroup")?.value ?? "").toString().trim();
+    const category = (document.getElementById("category")?.value ?? "").toString().trim();
+    return { displayGroup, category };
   }
 
   function addToCmsButton(setEl) {
     const actions = setEl.querySelector(".set-head .actions");
     if (!actions) return;
 
+    // 既にあるなら何もしない
     if (actions.querySelector(".btn-tocms")) return;
 
     const convertBtn = actions.querySelector(".btn-convert");
@@ -45,18 +36,17 @@
     btn.textContent = "toCMS";
     btn.title = "CMSへ流し込み";
 
-    // 「変換」の左へ
+    // 「変換」の左に差し込む
     actions.insertBefore(btn, convertBtn);
 
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
 
-      const v = getValues();
-      if (!v) return;
+      const { title, admin } = getOutputs(setEl);
+      const { displayGroup, category } = getMetaValues();
 
-      // 出力が空でも、今回は「ダイアログ出さない」方針なので何もしない（consoleだけ）
-      if (!v.outTitle && !v.outAdmin) {
-        console.warn("[toCMS] outputs are empty (convert first)");
+      if (!title && !admin && !displayGroup && !category) {
+        // 何も無いなら何もしない（うるさくしない）
         return;
       }
 
@@ -64,28 +54,26 @@
         const res = await chrome.runtime.sendMessage({
           type: MSG_TYPE,
           fields: {
-            title: v.outTitle,
-            adminName: v.outAdmin,
-            displayGroup: v.displayGroup,
-            category: v.category,
-            division: v.division,
-            firstCome: v.firstCome
+            title,
+            admin,
+            displayGroup,
+            category
           }
         });
 
-        if (!res?.ok) {
-          const err = String(res?.error || "unknown");
-          // ✅ CMSタブが無い時だけダイアログ
-          if (err.includes("CMSタブ") || err.includes("見つかりません")) {
-            alert(err);
+        // YokoApp側のダイアログは「CMSが見つからない時だけ」
+        if (!res || !res.ok) {
+          if (res?.code === "CMS_NOT_FOUND") {
+            alert(res.error);
           } else {
-            console.warn("[toCMS] send failed:", err);
+            // 通常失敗は黙ってコンソールだけ（必要なら後で方針変更）
+            console.warn("[toCMS] failed:", res?.error || res);
           }
         }
       } catch (err) {
-        const m = String(err?.message || err);
-        // 基本は黙る。致命（拡張死んでる等）は console へ
-        console.warn("[toCMS] send failed:", m);
+        // ここは「拡張側が受けてない」等なので、CMS見つからない扱いに寄せる
+        console.warn("[toCMS] send failed:", err);
+        alert("CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）");
       }
     });
   }
@@ -96,8 +84,10 @@
     addToCmsButton(setEl);
   }
 
+  // 初回
   boot();
 
+  // SPA/DOM差し替え対策（最小）
   const mo = new MutationObserver(() => boot());
   mo.observe(document.documentElement, { childList: true, subtree: true });
 })();
