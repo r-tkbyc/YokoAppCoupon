@@ -1,93 +1,95 @@
+// YokoAppCoupon side content script (GitHub Pages)
+// - Injects "toCMS" button into the Title block actions
+// - Collects converted outputs + selected meta values
+// - Sends payload to background -> CMS tab
+
 (() => {
   const MSG_TYPE = "YK_COUPON_TO_CMS";
+  const BTN_ID = "yk_toCMS_btn";
 
-  function findTitleSet() {
-    return document.querySelector('.set[data-set="title"]');
+  const qs = (sel, root = document) => root.querySelector(sel);
+  const trim = (v) => (v == null ? "" : String(v)).trim();
+
+  function collectFields() {
+    const fields = {};
+
+    // Title / Admin
+    const titleSet = qs('.set[data-set="title"]');
+    fields.title = trim(qs('.output-title', titleSet)?.value || qs('.output', titleSet)?.value || "");
+    fields.admin = trim(qs('.output-admin', titleSet)?.value || "");
+
+    // Meta
+    fields.division = trim(qs('#division')?.value || "");
+    fields.firstCome = trim(qs('#firstCome')?.value || "");
+    fields.displayGroup = trim(qs('#displayGroup')?.value || "");
+    fields.category = trim(qs('#category')?.value || "");
+
+    // Floor / Brand
+    const floorSet = qs('.set[data-set="floor-brand"]');
+    fields.brandFloor = trim(qs('.output-floor', floorSet)?.value || "");
+    fields.brandName = trim(qs('.output-brand', floorSet)?.value || "");
+
+    // Terms / Notes
+    const termsSet = qs('.set[data-set="terms"]');
+    fields.terms = trim(qs('.output-terms', termsSet)?.value || "");
+
+    const notesSet = qs('.set[data-set="notes"]');
+    fields.notes = trim(qs('.output-notes', notesSet)?.value || "");
+
+    return fields;
   }
 
-  function getOutputs(setEl) {
-    const titleEl = setEl.querySelector("textarea.output-title");
-    const adminEl = setEl.querySelector("textarea.output-admin");
-    return {
-      title: (titleEl?.value ?? "").trim(),
-      admin: (adminEl?.value ?? "").trim()
-    };
+  function ensureButton() {
+    const titleSet = qs('.set[data-set="title"]');
+    if (!titleSet) return false;
+
+    const actions = qs('.actions', titleSet);
+    if (!actions) return false;
+
+    if (qs(`#${BTN_ID}`, actions)) return true;
+
+    const btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.textContent = 'toCMS';
+    btn.title = 'CMSへ流し込み';
+    btn.addEventListener('click', onToCMS);
+
+    // Insert left of Convert (if exists)
+    const convertBtn = qs('.btn-convert', actions) || actions.querySelector('button');
+    actions.insertBefore(btn, convertBtn || actions.firstChild);
+    return true;
   }
 
-  function getMetaValues() {
-    const displayGroup = (document.getElementById("displayGroup")?.value ?? "").toString().trim();
-    const category = (document.getElementById("category")?.value ?? "").toString().trim();
-    return { displayGroup, category };
-  }
-
-  function addToCmsButton(setEl) {
-    const actions = setEl.querySelector(".set-head .actions");
-    if (!actions) return;
-
-    // 既にあるなら何もしない
-    if (actions.querySelector(".btn-tocms")) return;
-
-    const convertBtn = actions.querySelector(".btn-convert");
-    if (!convertBtn) return;
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn-tocms";
-    btn.textContent = "toCMS";
-    btn.title = "CMSへ流し込み";
-
-    // 「変換」の左に差し込む
-    actions.insertBefore(btn, convertBtn);
-
-    btn.addEventListener("click", async (e) => {
-      e.preventDefault();
-
-      const { title, admin } = getOutputs(setEl);
-      const { displayGroup, category } = getMetaValues();
-
-      if (!title && !admin && !displayGroup && !category) {
-        // 何も無いなら何もしない（うるさくしない）
-        return;
+  async function onToCMS() {
+    const fields = collectFields();
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: MSG_TYPE, fields });
+      // ダイアログは「CMSが見つからない時だけ」
+      if (!resp || resp.ok !== true) {
+        alert('CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）');
       }
-
-      try {
-        const res = await chrome.runtime.sendMessage({
-          type: MSG_TYPE,
-          fields: {
-            title,
-            admin,
-            displayGroup,
-            category
-          }
-        });
-
-        // YokoApp側のダイアログは「CMSが見つからない時だけ」
-        if (!res || !res.ok) {
-          if (res?.code === "CMS_NOT_FOUND") {
-            alert(res.error);
-          } else {
-            // 通常失敗は黙ってコンソールだけ（必要なら後で方針変更）
-            console.warn("[toCMS] failed:", res?.error || res);
-          }
-        }
-      } catch (err) {
-        // ここは「拡張側が受けてない」等なので、CMS見つからない扱いに寄せる
-        console.warn("[toCMS] send failed:", err);
-        alert("CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）");
-      }
-    });
+    } catch (err) {
+      console.warn('[toCMS] send failed:', err);
+      alert('CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）');
+    }
   }
 
   function boot() {
-    const setEl = findTitleSet();
-    if (!setEl) return;
-    addToCmsButton(setEl);
+    try {
+      ensureButton();
+    } catch (e) {
+      console.warn('[toCMS] boot failed:', e);
+    }
   }
 
-  // 初回
-  boot();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
+  }
 
-  // SPA/DOM差し替え対策（最小）
-  const mo = new MutationObserver(() => boot());
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+  // Keep it resilient to DOM rewrites (GitHub Pages reload, hot edits, etc.)
+  const obs = new MutationObserver(() => boot());
+  obs.observe(document.documentElement, { childList: true, subtree: true });
 })();
