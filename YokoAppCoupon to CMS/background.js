@@ -10,11 +10,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabs = await chrome.tabs.query({ url: `${CMS_URL_PREFIX}*` });
 
       if (!tabs || tabs.length === 0) {
-        sendResponse({
-          ok: false,
-          code: "CMS_NOT_FOUND",
-          error: "CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）"
-        });
+        sendResponse({ ok: false, reason: "no_cms_tab", error: "CMSタブが見つかりません（/store-coupons/new を開いてください）" });
         return;
       }
 
@@ -30,11 +26,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true, tabId: target.id });
     } catch (e) {
       console.warn("[background]", e);
-      sendResponse({
-        ok: false,
-        code: "SEND_FAILED",
-        error: String(e?.message || e)
-      });
+      sendResponse({ ok: false, reason: "send_failed", error: String(e?.message || e) });
     }
   })();
 
