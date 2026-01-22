@@ -1,238 +1,243 @@
-// 横浜CMS（新規クーポン）側 content script
-// - background から payload を受け取り、CMSの各フィールドへ入力する
-// - 成功時のダイアログは出さない（要件）
-// - 失敗時も基本は console のみ（YokoApp側で「受け口がない」ダイアログ）
-
-const MSG_TYPE = 'YK_COUPON_TO_CMS';
-
 (() => {
-  const CMS_HOST = 'front-admin.taspapp.takashimaya.co.jp';
-  const CMS_PATH_PREFIX = '/admin/store-coupons/new';
+  const MSG_TYPE = "YK_COUPON_TO_CMS";
 
-  if (location.hostname !== CMS_HOST) return;
-  if (!location.pathname.startsWith(CMS_PATH_PREFIX)) return;
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  // -----------------------------
-  // helpers
-  // -----------------------------
-  const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
-
-  function dispatchInputEvents(el) {
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function findLabelEl(labelText) {
-    const want = norm(labelText);
-    const labels = Array.from(document.querySelectorAll('label'));
-    // exact match first, then includes
-    let found = labels.find(l => norm(l.textContent).startsWith(want));
-    if (!found) found = labels.find(l => norm(l.textContent).includes(want));
-    return found || null;
-  }
-
-  function findFieldRootByLabel(labelEl) {
-    if (!labelEl) return null;
-    // Mantine: label は InputWrapper の中
-    // 近い Stack/Wrapper を root にして、その中から input/textarea/prosemirror を探す
-    return labelEl.closest('.mantine-InputWrapper-root, .mantine-Stack-root, .mantine-Input-wrapper, div') || labelEl.parentElement;
-  }
-
-  function findInputByLabel(labelText) {
-    const label = findLabelEl(labelText);
-    if (!label) return null;
-
-    const forId = label.getAttribute('for');
-    if (forId) {
-      const byId = document.getElementById(forId);
-      if (byId) return byId;
+  function showToast(msg){
+    // 既存があれば再利用
+    let toast = document.getElementById("__yk_toast__");
+    if (!toast){
+      toast = document.createElement("div");
+      toast.id = "__yk_toast__";
+      toast.style.position = "fixed";
+      toast.style.right = "16px";
+      toast.style.bottom = "16px";
+      toast.style.zIndex = "999999";
+      toast.style.padding = "10px 12px";
+      toast.style.borderRadius = "10px";
+      toast.style.background = "rgba(30,30,30,.92)";
+      toast.style.color = "#fff";
+      toast.style.fontSize = "13px";
+      toast.style.boxShadow = "0 6px 18px rgba(0,0,0,.25)";
+      toast.style.opacity = "0";
+      toast.style.transition = "opacity .2s ease";
+      document.body.appendChild(toast);
     }
-
-    const root = findFieldRootByLabel(label);
-    if (!root) return null;
-
-    // NumberInput / TextInput
-    return root.querySelector('input, textarea') || null;
+    toast.textContent = msg;
+    toast.style.opacity = "1";
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => (toast.style.opacity = "0"), 1200);
   }
 
-  function isUntouchedValue(input) {
-    const cur = String(input.value ?? '');
-    const init = input.getAttribute('value');
-    if (init == null) return cur === '';
-    return cur === init;
+  function setNativeValue(el, value){
+    const v = (value ?? "").toString();
+    const proto = el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, "value");
+    desc?.set?.call(el, v);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function setInputValueSmart(input, value, { force = false } = {}) {
+  function findInputByLabelText(labelText){
+    // label のテキストで特定 → for=id で input 取得
+    const labels = $$("label");
+    const target = labels.find(l => (l.textContent || "").replace(/\s+/g,"").includes(labelText.replace(/\s+/g,"")));
+    if (!target) return null;
+
+    const forId = target.getAttribute("for");
+    if (forId){
+      const input = document.getElementById(forId);
+      if (input) return input;
+    }
+    // fallback: labelの近くのinput
+    const wrap = target.closest(".mantine-InputWrapper-root") || target.parentElement;
+    return wrap ? $("input, textarea", wrap) : null;
+  }
+
+  async function setMantineSelectByLabel(labelText, desired){
+    const input = findInputByLabelText(labelText);
     if (!input) return false;
-    const v = String(value ?? '');
-    if (!force) {
-      // 空欄 or 初期値のときだけ上書き
-      if (!(String(input.value ?? '') === '' || isUntouchedValue(input))) return false;
-    }
+
+    const want = (desired ?? "").toString().trim();
+    if (!want) return false;
+
+    // すでに同値ならOK
+    if ((input.value || "").trim() === want) return true;
+
+    // クリックして候補を出す
+    input.click();
     input.focus();
-    input.value = v;
-    dispatchInputEvents(input);
-    input.blur();
+
+    // 候補が出るまで少し待つ
+    await new Promise(r => setTimeout(r, 50));
+
+    // role="option" を探して一致をクリック
+    const options = $$('[role="option"]');
+    const opt = options.find(o => (o.textContent || "").trim() === want) || null;
+    if (opt){
+      opt.click();
+      return true;
+    }
+
+    // fallback: 値を直接入れてみる
+    setNativeValue(input, want);
     return true;
   }
 
-  function setSelectLikeByLabel(labelText, value) {
-    const input = findInputByLabel(labelText);
-    if (!input) return false;
+  function findRichEditorByLabel(labelText){
+    const labels = $$("label");
+    const lb = labels.find(l => (l.textContent || "").trim().startsWith(labelText));
+    if (!lb) return null;
 
-    const v = String(value ?? '').trim();
-    if (!v) return false;
-
-    // 既に値が入っていて違う場合、初期値なら上書き（Selectは初期値が空が多い）
-    const force = String(input.value ?? '') === '' || isUntouchedValue(input);
-
-    if (!force) return false;
-
-    input.focus();
-    input.value = v;
-    dispatchInputEvents(input);
-
-    // Mantine Combobox: 入力→候補→Enter で確定
-    try {
-      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
-      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
-    } catch (_) {}
-
-    input.blur();
-    return true;
-  }
-
-  // RichTextEditor (tiptap / ProseMirror)
-  function findProseMirrorByLabel(labelText) {
-    const label = findLabelEl(labelText);
-    if (!label) return null;
-
-    const stack = label.closest('.mantine-Stack-root') || label.parentElement;
+    const stack = lb.closest(".mantine-Stack-root") || lb.parentElement;
     if (!stack) return null;
 
-    return stack.querySelector('.mantine-RichTextEditor-root .ProseMirror') || null;
+    const editorRoot = stack.querySelector(".mantine-RichTextEditor-root");
+    if (!editorRoot) return null;
+
+    const prose = editorRoot.querySelector(".ProseMirror[contenteditable='true']");
+    return prose || null;
   }
 
-  function proseMirrorIsEmpty(pm) {
-    if (!pm) return true;
-    return norm(pm.textContent) === '';
+  function richEditorIsEmpty(prose){
+    if (!prose) return true;
+    // tiptapの空判定に寄せる
+    const text = (prose.textContent || "").replace(/\u200B/g,"").trim();
+    return text.length === 0;
   }
 
-  function replaceContentEditableText(el, text) {
-    if (!el) return false;
-    const v = String(text ?? '');
-    if (!v) return false;
+  function setRichText(prose, text){
+    const t = (text ?? "").toString();
+    if (!t.trim()) return false;
 
-    el.focus();
+    // 2000文字制限はCMS側にあるのでここでは触らない（必要なら後で）
+    const escaped = t
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
 
-    // select all
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    let ok = false;
-    try {
-      ok = document.execCommand('insertText', false, v);
-    } catch (_) {
-      ok = false;
-    }
-
-    if (!ok) {
-      // fallback
-      el.textContent = v;
-    }
-
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, data: v, inputType: 'insertText' }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.blur();
+    const html = "<p>" + escaped.replace(/\n/g, "<br>") + "</p>";
+    prose.innerHTML = html;
+    prose.dispatchEvent(new Event("input", { bubbles: true }));
+    prose.dispatchEvent(new Event("blur", { bubbles: true }));
     return true;
   }
 
-  // Switch
-  function setSwitchByLabel(labelText, desiredOn) {
-    const label = findLabelEl(labelText);
-    if (!label) return false;
-    const root = findFieldRootByLabel(label);
-    if (!root) return false;
-
-    const input = root.querySelector('input[type="checkbox"][role="switch"], input[type="checkbox"]');
+  function setNumberInputByLabel(labelText, desired, treatAsDefaultValues = ["", "1"]){
+    const input = findInputByLabelText(labelText);
     if (!input) return false;
 
-    const want = Boolean(desiredOn);
-    const cur = Boolean(input.checked);
+    const want = (desired ?? "").toString().trim();
+    if (!want) return false;
+
+    const cur = (input.value ?? "").toString().trim();
+
+    // 空 or 初期値扱いなら上書きOK（今回の「1固定」対策）
+    if (!cur || treatAsDefaultValues.includes(cur) || cur === want){
+      setNativeValue(input, want);
+      return true;
+    }
+    // curが既に入力されていてユーザーが触っている可能性があるなら壊さない
+    return false;
+  }
+
+  function setSwitchByLabel(labelText, enabled){
+    // labelText を含む Stack を探し、その中の checkbox[role=switch]
+    const labels = $$("label");
+    const lb = labels.find(l => (l.textContent || "").trim().startsWith(labelText));
+    if (!lb) return false;
+
+    const stack = lb.closest(".mantine-Stack-root") || lb.parentElement;
+    if (!stack) return false;
+
+    const sw = stack.querySelector("input[type='checkbox'][role='switch']");
+    if (!sw) return false;
+
+    const want = !!enabled;
+    const cur = !!sw.checked;
     if (cur === want) return true;
 
-    input.focus();
-    input.click();
-    input.blur();
+    sw.click(); // Mantineはclickで状態/DOMを更新する想定
     return true;
   }
 
-  async function waitFor(fn, { timeoutMs = 2000, intervalMs = 60 } = {}) {
-    const t0 = Date.now();
-    return new Promise((resolve) => {
-      const tick = () => {
-        const v = fn();
-        if (v) return resolve(v);
-        if (Date.now() - t0 > timeoutMs) return resolve(null);
-        setTimeout(tick, intervalMs);
-      };
-      tick();
-    });
-  }
-
-  // -----------------------------
-  // message handling
-  // -----------------------------
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (!msg || msg.type !== MSG_TYPE) return;
-
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
-      const p = msg.payload || {};
+      try {
+        if (!msg || msg.type !== MSG_TYPE) return;
 
-      // 既存項目（従来）
-      if (p.title) setInputValueSmart(findInputByLabel('タイトル'), p.title);
-      if (p.admin) setInputValueSmart(findInputByLabel('管理名称'), p.admin);
+        const p = msg.payload || {};
+        let changed = false;
 
-      if (p.displayGroup) setSelectLikeByLabel('表示グループ', p.displayGroup);
-      if (p.category) setSelectLikeByLabel('カテゴリ', p.category);
+        // タイトル/管理名称（空欄のみ）
+        const titleEl = findInputByLabelText("タイトル");
+        if (titleEl && !titleEl.value && p.title){
+          setNativeValue(titleEl, p.title);
+          changed = true;
+        }
 
-      // 追加項目
-      if (p.terms) {
-        const pm = findProseMirrorByLabel('ご利用条件');
-        if (pm && proseMirrorIsEmpty(pm)) replaceContentEditableText(pm, p.terms);
-      }
-      if (p.notes) {
-        const pm = findProseMirrorByLabel('注意事項');
-        if (pm && proseMirrorIsEmpty(pm)) replaceContentEditableText(pm, p.notes);
-      }
+        const adminEl = findInputByLabelText("管理名称");
+        if (adminEl && !adminEl.value && p.adminName){
+          setNativeValue(adminEl, p.adminName);
+          changed = true;
+        }
 
-      // 会員ひとりが利用可能な回数（CMSは初期値 1 のため、初期値のままなら上書きOK）
-      if (p.coupon?.perUser != null && String(p.coupon.perUser).trim() !== '') {
-        const inp = findInputByLabel('会員ひとりが利用可能な回数');
-        setInputValueSmart(inp, p.coupon.perUser, { force: isUntouchedValue(inp) || String(inp?.value ?? '') === '' });
-      }
+        // 表示グループ / カテゴリ（select）
+        if (p.displayGroup){
+          const ok = await setMantineSelectByLabel("表示グループ", p.displayGroup);
+          if (ok) changed = true;
+        }
+        if (p.category){
+          const ok = await setMantineSelectByLabel("カテゴリ", p.category);
+          if (ok) changed = true;
+        }
 
-      // 全体の利用回数制限（あり/なし）
-      if (typeof p.coupon?.allLimitEnabled === 'boolean') {
-        setSwitchByLabel('全体の利用回数制限', p.coupon.allLimitEnabled);
-
-        if (p.coupon.allLimitEnabled) {
-          // 出現を待つ
-          await waitFor(() => findInputByLabel('全体で利用可能な回数'), { timeoutMs: 2500 });
-
-          if (p.coupon.allLimitCount != null && String(p.coupon.allLimitCount).trim() !== '') {
-            const inp = findInputByLabel('全体で利用可能な回数');
-            setInputValueSmart(inp, p.coupon.allLimitCount, { force: true });
+        // ご利用条件 / 注意事項（RichText：空なら入れる）
+        if (p.terms){
+          const prose = findRichEditorByLabel("ご利用条件");
+          if (prose && richEditorIsEmpty(prose)){
+            if (setRichText(prose, p.terms)) changed = true;
           }
         }
-      }
+        if (p.notes){
+          const prose = findRichEditorByLabel("注意事項");
+          if (prose && richEditorIsEmpty(prose)){
+            if (setRichText(prose, p.notes)) changed = true;
+          }
+        }
 
-      sendResponse({ ok: true });
+        // 会員ひとりが利用可能な回数（基本空 or 初期値なら入れる）
+        if (p.perUser){
+          if (setNumberInputByLabel("会員ひとりが利用可能な回数", p.perUser, ["", "1"])) changed = true;
+        }
+
+        // 全体の利用回数制限（switch）
+        if (typeof p.totalLimitEnabled === "boolean"){
+          if (setSwitchByLabel("全体の利用回数制限", p.totalLimitEnabled)) changed = true;
+          // DOM変化待ち
+          await new Promise(r => setTimeout(r, 80));
+        }
+
+        // 全体で利用可能な回数（“あり”の時に出現）
+        if (p.totalLimitEnabled && p.totalCount){
+          // ここは「1が初期値」になりがちなので上書き許可
+          if (setNumberInputByLabel("全体で利用可能な回数", p.totalCount, ["", "1"])) changed = true;
+        }
+
+        if (changed) showToast("入力しました");
+
+        sendResponse({ ok: true, changed });
+      } catch (e) {
+        console.warn("[cms_inject]", e);
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
     })();
 
-    return true; // async
+    return true;
   });
 })();

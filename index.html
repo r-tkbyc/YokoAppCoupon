@@ -603,31 +603,54 @@
 
   // 右上バージョン＝クリア（全部クリア）
   (function(){
-    function setSelectByValueOrText(sel, desired){
-      if (!sel) return;
-      const opts = Array.from(sel.options || []);
-      const hit = opts.find(o => o.value === desired) || opts.find(o => (o.textContent || '').trim() === desired);
-      if (hit) sel.value = hit.value;
+    function setSelectByValueOrText(selectEl, valueOrText){
+      if (!selectEl || selectEl.tagName !== 'SELECT') return false;
+      const target = String(valueOrText ?? '').trim();
+      if (!target) return false;
+
+      // value一致を優先
+      const byValue = Array.from(selectEl.options).find(o => (o.value ?? '').trim() === target);
+      if (byValue){
+        selectEl.value = byValue.value;
+        selectEl.dispatchEvent(new Event('input', { bubbles:true }));
+        selectEl.dispatchEvent(new Event('change', { bubbles:true }));
+        return true;
+      }
+
+      // text一致 fallback
+      const byText = Array.from(selectEl.options).find(o => (o.textContent ?? '').trim() === target);
+      if (byText){
+        selectEl.value = byText.value;
+        selectEl.dispatchEvent(new Event('input', { bubbles:true }));
+        selectEl.dispatchEvent(new Event('change', { bubbles:true }));
+        return true;
+      }
+
+      return false;
     }
 
-    function setFieldByPanelTitle(panelTitle, value){
-      const panels = Array.from(document.querySelectorAll('.panel'));
-      for (const p of panels){
-        const h2 = p.querySelector('h2');
-        if (!h2) continue;
-        const t = (h2.textContent || '').trim();
-        if (t !== panelTitle) continue;
+    function setFieldByPanelTitle(panelH2Text, value){
+      const t = String(panelH2Text ?? '').trim();
+      if (!t) return false;
 
-        const el = p.querySelector('input, textarea, select');
-        if (!el) return;
+      // 「クーポン利用条件」ブロック内を優先して探す（見出しが変わっても強い）
+      const sets = Array.from(document.querySelectorAll('.set'));
+      const couponSet =
+        sets.find(s => (s.querySelector('.set-title')?.textContent || '').includes('クーポン利用条件')) || null;
 
-        if (el.tagName === 'SELECT') {
-          setSelectByValueOrText(el, value);
-        } else {
-          el.value = value;
-        }
-        return;
-      }
+      const scope = couponSet || document;
+
+      const panels = Array.from(scope.querySelectorAll('.panel'));
+      const panel = panels.find(p => (p.querySelector('h2')?.textContent || '').trim() === t) || null;
+      if (!panel) return false;
+
+      const field = panel.querySelector('input, textarea');
+      if (!field) return false;
+
+      field.value = String(value ?? '');
+      field.dispatchEvent(new Event('input', { bubbles:true }));
+      field.dispatchEvent(new Event('change', { bubbles:true }));
+      return true;
     }
 
     function applyDefaults(){
@@ -647,6 +670,8 @@
       }
       if (found) {
         found.value = '1';
+        found.dispatchEvent(new Event('input', { bubbles:true }));
+        found.dispatchEvent(new Event('change', { bubbles:true }));
       } else {
         // panel見出しで拾う（あなたのUIの見出しがこれ）
         setFieldByPanelTitle('入力（会員ひとりが利用可能な回数）', '1');
@@ -661,7 +686,7 @@
         else el.value = '';
       });
 
-      // ★ ここが追加：デフォルト値を復元
+      // ★ デフォルト値を復元
       applyDefaults();
 
       toast('クリアしました');
@@ -669,6 +694,9 @@
 
     var vb = document.getElementById('ver');
     if (vb) vb.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
+
+    // ★ 初回表示時もデフォルトを適用（任意だがおすすめ）
+    document.addEventListener('DOMContentLoaded', applyDefaults);
   })();
   </script>
 </body>

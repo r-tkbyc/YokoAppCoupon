@@ -1,160 +1,166 @@
-// YokoAppCoupon (GitHub Pages) 側 content script
-// - タイトルブロックの actions に toCMS ボタンを挿入
-// - クリックで各フィールド値を payload 化し background へ送信
-// - CMS タブが見つからない時だけアラート表示
-
-const MSG_TYPE = 'YK_COUPON_TO_CMS';
-
 (() => {
-  const TOOL_ORIGIN = 'https://r-tkbyc.github.io';
-  const TOOL_PATH_PREFIX = '/YokoAppCoupon/';
-
-  if (location.origin !== TOOL_ORIGIN) return;
-  if (!location.pathname.startsWith(TOOL_PATH_PREFIX)) return;
+  const MSG_TYPE = "YK_COUPON_TO_CMS";
 
   // -----------------------------
   // helpers
   // -----------------------------
-  const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  function qsAny(selectors, root = document) {
-    for (const sel of selectors) {
-      const el = root.querySelector(sel);
-      if (el) return el;
-    }
-    return null;
+  function findSetByTitleText(titleText){
+    const sets = $$(".set");
+    return sets.find(s => (s.querySelector(".set-title")?.textContent || "").trim() === titleText) || null;
   }
 
-  function findPanelByHeadingText(headingTextCandidates) {
-    const cands = Array.isArray(headingTextCandidates) ? headingTextCandidates : [headingTextCandidates];
-    const heads = Array.from(document.querySelectorAll('.panel h2'));
-    for (const h of heads) {
-      const t = norm(h.textContent);
-      for (const cand of cands) {
-        if (!cand) continue;
-        if (t === cand || t.includes(cand)) {
-          return h.closest('.panel');
-        }
-      }
-    }
-    return null;
+  function findPanelByH2(rootSet, h2Text){
+    if (!rootSet) return null;
+    const panels = $$(".panel", rootSet);
+    return panels.find(p => (p.querySelector("h2")?.textContent || "").trim() === h2Text) || null;
   }
 
-  function readValueFromPanel(panel) {
-    if (!panel) return { kind: 'none', value: '' };
+  function readAnyValue(panel){
+    if (!panel) return { value: "", el: null };
 
-    const textarea = panel.querySelector('textarea');
-    if (textarea) return { kind: 'text', value: textarea.value ?? '' };
+    const el =
+      $("textarea", panel) ||
+      $("input", panel) ||
+      $("select", panel);
 
-    const input = panel.querySelector('input');
-    if (input) {
-      if (input.type === 'checkbox') return { kind: 'checkbox', value: input.checked };
-      return { kind: 'input', value: input.value ?? '' };
-    }
+    if (!el) return { value: "", el: null };
 
-    const select = panel.querySelector('select');
-    if (select) return { kind: 'select', value: select.value ?? '' };
+    if (el.tagName === "SELECT") return { value: el.value ?? "", el };
+    if (el.type === "checkbox" || el.type === "radio") return { value: el.checked ? "1" : "0", el };
 
-    return { kind: 'none', value: '' };
+    return { value: (el.value ?? "").toString(), el };
   }
 
-  function buildPayload() {
-    const title = (qsAny(['.output-title', 'textarea.output-title', 'textarea.output'])?.value ?? '').trim();
-    const admin = (qsAny(['.output-admin', 'textarea.output-admin'])?.value ?? '').trim();
+  function cleanNum(v){
+    const s = (v ?? "").toString().trim();
+    const n = s.replace(/[^\d]/g, "");
+    // 0 は空扱い
+    if (!n) return "";
+    if (Number(n) <= 0) return "";
+    return String(Number(n));
+  }
 
-    const displayGroup = (qsAny(['#displayGroup', 'select#displayGroup'])?.value ?? '').trim();
-    const category = (qsAny(['#category', 'select#category'])?.value ?? '').trim();
+  function insertToCMSButton(){
+    const titleSet = $('.set[data-set="title"]');
+    const actions = titleSet ? $(".actions", titleSet) : null;
+    if (!actions) return false;
 
-    const floor = (qsAny(['.output-floor', 'textarea.output-floor'])?.value ?? '').trim();
-    const brand = (qsAny(['.output-brand', 'textarea.output-brand'])?.value ?? '').trim();
+    if ($("#btn-toCMS", actions)) return true;
 
-    const terms = (qsAny(['.output-terms', 'textarea.output-terms'])?.value ?? '').trim();
-    const notes = (qsAny(['.output-notes', 'textarea.output-notes'])?.value ?? '').trim();
+    const btn = document.createElement("button");
+    btn.id = "btn-toCMS";
+    btn.textContent = "toCMS";
+    btn.title = "CMSへ流し込み";
+    // 既存ボタンと同じ見た目（primaryを使わない）
+    btn.className = "";
 
-    const pPerUser = findPanelByHeadingText(['会員ひとりが利用可能な回数', '入力（会員ひとりが利用可能な回数）']);
-    const perUserVal = readValueFromPanel(pPerUser).value;
+    const convertBtn = $(".btn-convert", actions);
+    if (convertBtn) actions.insertBefore(btn, convertBtn);
+    else actions.prepend(btn);
 
-    const pAllLimit = findPanelByHeadingText(['全体の利用回数制限', '入力（全体の利用回数制限）']);
-    const allLimitRaw = readValueFromPanel(pAllLimit);
-    let allLimitEnabled = null;
-    if (allLimitRaw.kind === 'checkbox') allLimitEnabled = Boolean(allLimitRaw.value);
-    if (allLimitRaw.kind === 'select' || allLimitRaw.kind === 'input') {
-      const v = String(allLimitRaw.value ?? '');
-      allLimitEnabled = v.includes('あり') || v === 'true' || v === '1';
-    }
+    btn.addEventListener("click", onToCMS);
+    return true;
+  }
 
-    const pAllCount = findPanelByHeadingText(['全体で利用可能な回数', '入力（全体で利用可能な回数）']);
-    const allLimitCountVal = readValueFromPanel(pAllCount).value;
+  // DOM遅延対策
+  function ensureButton(){
+    if (insertToCMSButton()) return;
+    const mo = new MutationObserver(() => {
+      if (insertToCMSButton()) mo.disconnect();
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  // -----------------------------
+  // main: build payload
+  // -----------------------------
+  function buildPayload(){
+    // タイトル系（出力から取る）
+    const titleSet = $('.set[data-set="title"]');
+    const outTitle = $(".output-title", titleSet)?.value ?? "";
+    const outAdmin = $(".output-admin", titleSet)?.value ?? "";
+
+    // メタ
+    const division = ($("#division")?.value ?? "").toString().trim();
+    const firstCome = cleanNum($("#firstCome")?.value ?? "");
+    const displayGroup = ($("#displayGroup")?.value ?? "").toString().trim();
+    const category = ($("#category")?.value ?? "").toString().trim();
+
+    // フロア・ブランド（出力から取る＝変換結果を送る）
+    const fbSet = $('.set[data-set="floor-brand"]');
+    const brandFloor = $(".output-floor", fbSet)?.value ?? "";
+    const brandName = $(".output-brand", fbSet)?.value ?? "";
+
+    // ご利用条件 / 注意事項（出力から取る）
+    const termsSet = $('.set[data-set="terms"]');
+    const notesSet = $('.set[data-set="notes"]');
+    const terms = $(".output-terms", termsSet)?.value ?? "";
+    const notes = $(".output-notes", notesSet)?.value ?? "";
+
+    // クーポン利用条件（セットタイトルで探す）
+    const couponSet = findSetByTitleText("クーポン利用条件");
+
+    const pPerUser = findPanelByH2(couponSet, "入力（会員ひとりが利用可能な回数）");
+    const pToggle  = findPanelByH2(couponSet, "入力（全体の利用回数制限）");
+    const pTotal   = findPanelByH2(couponSet, "入力（全体で利用可能な回数）");
+
+    let perUser = readAnyValue(pPerUser).value;
+    perUser = cleanNum(perUser) || "1"; // 空なら1（保険）
+
+    // toggle は UI 実装に依存するので、基本は totalCount の有無で判定
+    const totalCount = cleanNum(readAnyValue(pTotal).value);
+    const totalLimitEnabled = !!totalCount; // 0/空なら false
 
     return {
-      title,
-      admin,
-      displayGroup,
-      category,
-      floor,
-      brand,
-      terms,
-      notes,
-      coupon: {
-        perUser: String(perUserVal ?? '').trim(),
-        allLimitEnabled,
-        allLimitCount: String(allLimitCountVal ?? '').trim(),
-      },
-      __meta: {
-        sourceUrl: location.href,
-        sentAt: Date.now(),
-      },
+      type: MSG_TYPE,
+      payload: {
+        title: outTitle,
+        adminName: outAdmin,
+
+        division,
+        firstCome,
+        displayGroup,
+        category,
+
+        brandFloor,
+        brandName,
+
+        terms,
+        notes,
+
+        perUser,
+        totalLimitEnabled,
+        totalCount
+      }
     };
   }
 
-  function showCmsNotFoundDialog() {
-    alert('CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）');
-  }
+  async function onToCMS(){
+    const msg = buildPayload();
 
-  async function sendToBackground(payload) {
+    // 拡張のコンテキスト保険
+    if (!chrome?.runtime?.sendMessage){
+      alert("拡張機能のコンテキストが見つかりません。（拡張が有効か確認してください）");
+      return;
+    }
+
     try {
-      const res = await chrome.runtime.sendMessage({ type: MSG_TYPE, payload });
-      if (!res || res.ok !== true) {
-        if (res?.reason === 'no_cms_tab') showCmsNotFoundDialog();
-        console.warn('[toCMS] background response:', res);
-        return;
+      const res = await chrome.runtime.sendMessage(msg);
+
+      // 成功時は何もしない（要求どおり）
+      if (!res || res.ok !== true){
+        const reason = (res && res.error) ? res.error : "CMS側の受け口が見つかりません。";
+        alert(`CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）\n\n${reason}`);
       }
-      // 成功時は何も出さない（要件）
-    } catch (err) {
-      console.warn('[toCMS] send failed:', err);
-      showCmsNotFoundDialog();
+    } catch (err){
+      alert("CMS側の受け口が見つかりません。（拡張機能を再読み込み→CMSタブを再読み込みしてください）");
+      console.warn("[toCMS] send failed:", err);
     }
   }
 
-  function ensureButton() {
-    const actions = document.querySelector('.set[data-set="title"] .actions');
-    if (!actions) return;
-
-    if (actions.querySelector('.btn-tocms')) return;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn-tocms';
-    btn.textContent = 'toCMS';
-    btn.title = 'CMSへ流し込み';
-
-    btn.addEventListener('click', () => {
-      const payload = buildPayload();
-      sendToBackground(payload);
-    });
-
-    actions.appendChild(btn);
-  }
-
-  const boot = () => {
-    ensureButton();
-    const mo = new MutationObserver(() => ensureButton());
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot, { once: true });
-  } else {
-    boot();
-  }
+  // init
+  ensureButton();
 })();

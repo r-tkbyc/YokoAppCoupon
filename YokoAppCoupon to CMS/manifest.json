@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
   "name": "YokoAppCoupon to CMS",
-  "version": "0.2.0",
-  "description": "YokoAppCoupon(GitHub Pages) → 横浜CMS（新規クーポン）へ自動入力（タイトル/管理名称/表示グループ/カテゴリ/ご利用条件/注意事項/利用条件）",
-  "permissions": [
-    "tabs"
-  ],
+  "version": "1.1.6",
+  "description": "YokoAppCoupon（GitHub Pages）から、別タブのCMSへ自動入力します。",
+  "permissions": ["tabs", "scripting", "activeTab"],
   "host_permissions": [
+    "https://r-tkbyc.github.io/*",
     "https://front-admin.taspapp.takashimaya.co.jp/*"
   ],
   "background": {
@@ -14,21 +13,13 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://front-admin.taspapp.takashimaya.co.jp/store-coupons/new*"
-      ],
-      "js": [
-        "cms_inject.js"
-      ],
+      "matches": ["https://r-tkbyc.github.io/YokoAppCoupon/*"],
+      "js": ["koma_inject.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": [
-        "https://r-tkbyc.github.io/YokoAppCoupon/*"
-      ],
-      "js": [
-        "koma_inject.js"
-      ],
+      "matches": ["https://front-admin.taspapp.takashimaya.co.jp/store-coupons/*"],
+      "js": ["cms_inject.js"],
       "run_at": "document_idle"
     }
   ]
