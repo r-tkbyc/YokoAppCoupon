@@ -57,6 +57,44 @@
     return wrap ? $("input, textarea", wrap) : null;
   }
 
+  // ---- 追加：ラベルを“できるだけ厳密に”拾う（ブランド系で誤爆しやすいのを防ぐ） ----
+  function _normLabel(s){
+    return (s || "").toString().replace(/\s+/g, "");
+  }
+
+  function findLabelElementStrict(labelText){
+    const want = _normLabel(labelText);
+    if (!want) return null;
+
+    const labels = $$("label");
+    // 1) exact match
+    let lb = labels.find(l => _normLabel(l.textContent || "") === want) || null;
+    if (lb) return lb;
+
+    // 2) startsWith
+    lb = labels.find(l => _normLabel(l.textContent || "").startsWith(want)) || null;
+    if (lb) return lb;
+
+    // 3) includes (fallback)
+    lb = labels.find(l => _normLabel(l.textContent || "").includes(want)) || null;
+    return lb || null;
+  }
+
+  function findInputByLabelTextStrict(labelText){
+    // label のテキストで特定（なるべく厳密） → for=id で input 取得
+    const target = findLabelElementStrict(labelText);
+    if (!target) return null;
+
+    const forId = target.getAttribute("for");
+    if (forId){
+      const input = document.getElementById(forId);
+      if (input) return input;
+    }
+    // fallback: labelの近くのinput
+    const wrap = target.closest(".mantine-InputWrapper-root") || target.parentElement;
+    return wrap ? $("input, textarea", wrap) : null;
+  }
+
   async function setMantineSelectByLabel(labelText, desired){
     const input = findInputByLabelText(labelText);
     if (!input) return false;
@@ -83,6 +121,31 @@
     }
 
     // fallback: 値を直接入れてみる
+    setNativeValue(input, want);
+    return true;
+  }
+
+  // ---- 追加：ブランド系用（Strict版） ----
+  async function setMantineSelectByLabelStrict(labelText, desired){
+    const input = findInputByLabelTextStrict(labelText);
+    if (!input) return false;
+
+    const want = (desired ?? "").toString().trim();
+    if (!want) return false;
+
+    if ((input.value || "").trim() === want) return true;
+
+    input.click();
+    input.focus();
+    await new Promise(r => setTimeout(r, 50));
+
+    const options = $$('[role="option"]');
+    const opt = options.find(o => (o.textContent || "").trim() === want) || null;
+    if (opt){
+      opt.click();
+      return true;
+    }
+
     setNativeValue(input, want);
     return true;
   }
@@ -195,6 +258,22 @@
         if (p.category){
           const ok = await setMantineSelectByLabel("カテゴリ", p.category);
           if (ok) changed = true;
+        }
+
+        // ★追加：ブランド入居フロア / ブランド名（空欄のみ）
+        if (p.brandFloor){
+          const bf = findInputByLabelTextStrict("ブランド入居フロア") || findInputByLabelText("ブランド入居フロア");
+          if (bf && !(bf.value || "").toString().trim()){
+            const ok = await setMantineSelectByLabelStrict("ブランド入居フロア", p.brandFloor);
+            if (ok) changed = true;
+          }
+        }
+        if (p.brandName){
+          const bn = findInputByLabelTextStrict("ブランド名") || findInputByLabelText("ブランド名");
+          if (bn && !(bn.value || "").toString().trim()){
+            const ok = await setMantineSelectByLabelStrict("ブランド名", p.brandName);
+            if (ok) changed = true;
+          }
         }
 
         // ご利用条件 / 注意事項（RichText：空なら入れる）
