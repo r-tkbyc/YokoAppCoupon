@@ -657,24 +657,15 @@
       // カテゴリのデフォルト：アプリクーポン
       setSelectByValueOrText(document.getElementById('category'), 'アプリクーポン');
 
-      // 会員ひとりが利用可能な回数のデフォルト：1
-      // まずはIDで拾う（もしIDが違っても下のパネル見出しfallbackで拾う）
-      const idCandidates = [
-        'memberOnce','memberCount','memberLimit','memberLimitPerUser','perMemberCount',
-        'usePerMember','limitPerMember','memberTimes','memberUseCount'
-      ];
-      let found = null;
-      for (const id of idCandidates){
-        const el = document.getElementById(id);
-        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) { found = el; break; }
-      }
-      if (found) {
-        found.value = '1';
-        found.dispatchEvent(new Event('input', { bubbles:true }));
-        found.dispatchEvent(new Event('change', { bubbles:true }));
+      // 会員ひとりが利用可能な回数のデフォルト：1（ID直）
+      const per = document.getElementById('perMemberLimit');
+      if (per){
+        per.value = '1';
+        per.dispatchEvent(new Event('input', { bubbles:true }));
+        per.dispatchEvent(new Event('change', { bubbles:true }));
       } else {
-        // panel見出しで拾う（あなたのUIの見出しがこれ）
-        setFieldByPanelTitle('入力（会員ひとりが利用可能な回数）', '1');
+        // 念のためのfallback（見出しは現状のHTMLに合わせる）
+        setFieldByPanelTitle('会員ひとりが利用可能な回数', '1');
       }
     }
 

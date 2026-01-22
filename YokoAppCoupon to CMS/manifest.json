@@ -18,7 +18,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://front-admin.taspapp.takashimaya.co.jp/store-coupons/*"],
+      "matches": ["https://front-admin.taspapp.takashimaya.co.jp/store-coupons*"],
       "js": ["cms_inject.js"],
       "run_at": "document_idle"
     }
