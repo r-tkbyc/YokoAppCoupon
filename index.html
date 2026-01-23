@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.7 - 2026-01-23 -->
-  <meta name="app-version" content="v1.1.7">
+  <!-- Text Formatter v1.1.8 - 2026-01-23 -->
+  <meta name="app-version" content="v1.1.8">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -108,18 +108,6 @@
     }
   }
 
-  /* 4列（日時設定：入力3 + 年） */
-  .date-row{
-    display:grid;
-    grid-template-columns: 1fr;
-    gap: var(--gap);
-  }
-  @media (min-width: 960px){
-    .date-row{
-      grid-template-columns: 1fr 1fr 1fr 220px;
-    }
-  }
-
   input, select{
     width: 100%;
     height: var(--btn-h);
@@ -147,7 +135,7 @@
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
 
-  /* 日時：テキスト＋ピッカー */
+  /* 日時：テキスト＋ピッカー（📅の上に datetime-local を透明で重ねる） */
   .dt-line{
     display:flex;
     gap: var(--gap);
@@ -157,20 +145,37 @@
     flex: 1;
     min-width: 0;
   }
-  .dt-btn{
+  .dt-picker{
+    position: relative;
     width: 28px;
-    padding: 0 !important;
-    text-align:center;
+    height: var(--btn-h);
+    flex: 0 0 28px;
   }
-  .dt-hidden{
+  .dt-picker .dt-ico{
+    width: 100%;
+    height: 100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid #111111;
+    background:#585858;
+    border-radius:2px;
+    user-select:none;
+  }
+  .dt-picker input.dt-overlay{
     position:absolute;
-    left:-99999px;
-    top:-99999px;
-    width:1px;
-    height:1px;
+    inset:0;
+    width:100%;
+    height:100%;
     opacity:0;
-    pointer-events:none;
+    cursor:pointer;
+    border:0;
+    padding:0;
+    margin:0;
+    background:transparent;
+    color:transparent;
   }
+
   .mono{
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     letter-spacing: 0.1px;
@@ -301,70 +306,6 @@
       </div>
     </section>
 
-    <!-- ★ 日時設定 -->
-    <section class="set" data-set="datetime">
-      <div class="set-head">
-        <h2 class="set-title">日時設定</h2>
-        <div class="actions">
-          <select id="baseYear" data-persist="1" title="基準年（リセットしても保持）">
-            <option value="2026">2026</option>
-            <option value="2027">2027</option>
-            <option value="2028">2028</option>
-            <option value="2029">2029</option>
-            <option value="2030">2030</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="date-row">
-        <section class="panel">
-          <h2>入力（開始日時）</h2>
-          <div class="dt-line">
-            <input class="dt-text mono" id="dtStartIn" type="text" placeholder="例：2/18（水） / 8月11日">
-            <button class="dt-btn" type="button" data-open-picker="dtStartPicker" title="日時を選択">📅</button>
-          </div>
-          <input class="dt-hidden" id="dtStartPicker" type="datetime-local">
-        </section>
-
-        <section class="panel">
-          <h2>入力（終了日時）</h2>
-          <div class="dt-line">
-            <input class="dt-text mono" id="dtEndIn" type="text" placeholder="例：3/4 / 1/10">
-            <button class="dt-btn" type="button" data-open-picker="dtEndPicker" title="日時を選択">📅</button>
-          </div>
-          <input class="dt-hidden" id="dtEndPicker" type="datetime-local">
-        </section>
-
-        <section class="panel">
-          <h2>入力（配布希望日時）</h2>
-          <div class="dt-line">
-            <input class="dt-text mono" id="dtWishIn" type="text" placeholder="未記入なら開始の1日前 17:00">
-            <button class="dt-btn" type="button" data-open-picker="dtWishPicker" title="日時を選択">📅</button>
-          </div>
-          <input class="dt-hidden" id="dtWishPicker" type="datetime-local">
-        </section>
-
-        <section class="panel">
-          <h2>出力（公開期間 / 開始日時）</h2>
-          <input class="mono" id="dtPublishStartOut" type="text" readonly placeholder="（変換で反映）">
-          <div style="height:4px"></div>
-          <h2>出力（利用可能期間 / 開始日時）</h2>
-          <input class="mono" id="dtUsableStartOut" type="text" readonly placeholder="（変換で反映）">
-        </section>
-      </div>
-
-      <div class="row">
-        <section class="panel">
-          <h2>出力（公開期間 / 終了日時）</h2>
-          <input class="mono" id="dtPublishEndOut" type="text" readonly placeholder="（変換で反映）">
-        </section>
-        <section class="panel">
-          <h2>出力（利用可能期間 / 終了日時）</h2>
-          <input class="mono" id="dtUsableEndOut" type="text" readonly placeholder="（変換で反映）">
-        </section>
-      </div>
-    </section>
-
     <!-- ご利用条件 -->
     <section class="set" data-set="terms">
       <div class="set-head">
@@ -432,12 +373,88 @@
         </section>
       </div>
     </section>
+
+    <!-- ★ 日時設定（最下部へ移動 / 3行×2列） -->
+    <section class="set" data-set="datetime">
+      <div class="set-head">
+        <h2 class="set-title">日時設定</h2>
+        <div class="actions">
+          <select id="baseYear" data-persist="1" title="基準年（リセットしても保持）">
+            <option value="2026">2026</option>
+            <option value="2027">2027</option>
+            <option value="2028">2028</option>
+            <option value="2029">2029</option>
+            <option value="2030">2030</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 1行目：開始 -->
+      <div class="row">
+        <section class="panel">
+          <h2>入力（開始日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtStartIn" type="text" placeholder="例：2/18（水） / 8月11日">
+            <div class="dt-picker" title="日時を選択">
+              <div class="dt-ico">📅</div>
+              <input class="dt-overlay" id="dtStartPicker" type="datetime-local" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>出力（利用可能期間 / 開始日時）</h2>
+          <input class="mono" id="dtUsableStartOut" type="text" readonly placeholder="（変換で反映）">
+        </section>
+      </div>
+
+      <!-- 2行目：終了（出力は統合） -->
+      <div class="row">
+        <section class="panel">
+          <h2>入力（終了日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtEndIn" type="text" placeholder="例：3/4 / 1/10">
+            <div class="dt-picker" title="日時を選択">
+              <div class="dt-ico">📅</div>
+              <input class="dt-overlay" id="dtEndPicker" type="datetime-local" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>出力（公開期間・利用可能期間 / 終了日時）</h2>
+          <input class="mono" id="dtEndOutCombined" type="text" readonly placeholder="（変換で反映）">
+          <!-- 互換用：将来マッピングで別IDが必要になっても困らないように隠しで保持 -->
+          <input id="dtPublishEndOut" type="text" style="display:none" readonly>
+          <input id="dtUsableEndOut" type="text" style="display:none" readonly>
+        </section>
+      </div>
+
+      <!-- 3行目：配布希望（公開開始） -->
+      <div class="row">
+        <section class="panel">
+          <h2>入力（配布希望日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtWishIn" type="text" placeholder="未記入なら開始の1日前 17:00">
+            <div class="dt-picker" title="日時を選択">
+              <div class="dt-ico">📅</div>
+              <input class="dt-overlay" id="dtWishPicker" type="datetime-local" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>出力（公開期間 / 開始日時）</h2>
+          <input class="mono" id="dtPublishStartOut" type="text" readonly placeholder="（変換で反映）">
+        </section>
+      </div>
+    </section>
   </main>
 
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.7";
+  const APP_VERSION = "v1.1.8";
   const APP_BUILD = "2026-01-23";
   const PRICE_SPACE_RULE_ENABLED = false;
 
@@ -458,7 +475,6 @@
       by.addEventListener("change", () => localStorage.setItem(LS_BASE_YEAR_KEY, by.value));
     }
 
-    // datetime-localピッカー：選択 → テキストへ書き戻し
     wirePickers();
   });
 
@@ -615,7 +631,7 @@
 
   function stripWeekday(s){
     return String(s||'')
-      .replace(/[（(][^）)]*[）)]/g,'') // (水) / （日）
+      .replace(/[（(][^）)]*[）)]/g,'')
       .trim();
   }
 
@@ -636,7 +652,7 @@
     // 年月日
     let year = null, month = null, day = null, hasYear = false;
 
-    // 1) YYYY/MM/DD or YYYY-MM-DD
+    // 1) YYYY/MM/DD or YYYY-MM-DD or YYYY年M月D日
     let m = s.match(/(\d{4})\s*[\/\-\.年]\s*(\d{1,2})\s*[\/\-\.月]\s*(\d{1,2})\s*(?:日)?/);
     if (m){
       year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
@@ -651,7 +667,7 @@
         if (m){
           year = Number(baseYear); month = Number(m[1]); day = Number(m[2]);
         } else {
-          // 4) YYYY/MM/DD HH:mm（スラッシュだけのパターンも一応）
+          // 4) YYYY/MM/DD
           m = s.match(/(\d{4})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
           if (m){
             year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
@@ -662,7 +678,6 @@
 
     if (!year || !month || !day) return { ok:false };
 
-    // 時刻の整合
     if (hasTime){
       if (!(hour>=0 && hour<=23 && minute>=0 && minute<=59)) return { ok:false };
     }
@@ -672,14 +687,12 @@
 
   function makeDate(y,m,d,h,mi){
     const dt = new Date(y, m-1, d, h, mi, 0, 0);
-    // 妥当性チェック（Dateが繰り上げるのを防ぐ）
     if (dt.getFullYear()!==y || (dt.getMonth()+1)!==m || dt.getDate()!==d) return null;
     return dt;
   }
 
   function monthDayKey(month, day){ return month*100 + day; }
 
-  // datetime-local用にISOっぽい形へ（ローカル）
   function toDatetimeLocalValue(d){
     const y = d.getFullYear();
     const m = pad2(d.getMonth()+1);
@@ -690,7 +703,6 @@
   }
 
   function fromDatetimeLocalValue(v){
-    // "YYYY-MM-DDTHH:mm"
     const m = String(v||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
     if (!m) return null;
     return makeDate(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]));
@@ -711,20 +723,19 @@
     for (const it of map){
       const textEl = document.getElementById(it.textId);
       const pickEl = document.getElementById(it.pickerId);
-      const btn = document.querySelector(`[data-open-picker="${it.pickerId}"]`);
-      if (!textEl || !pickEl || !btn) continue;
+      if (!textEl || !pickEl) continue;
 
-      btn.addEventListener("click", () => {
-        // テキストが入っていれば、それを元にピッカー初期値を作る
+      // クリック直前（ユーザー操作中）に初期値を仕込む：これが一番安定
+      pickEl.addEventListener("pointerdown", () => {
         const baseYear = getBaseYear();
         const parsed = parseDateTimeLoose(textEl.value || "", baseYear);
 
         let init = null;
         if (parsed.ok){
-          const [dh, dm] = (parsed.hasTime ? `${pad2(parsed.hour)}:${pad2(parsed.minute)}` : it.defaultTime).split(":").map(Number);
+          const [dh, dm] = (parsed.hasTime ? `${pad2(parsed.hour)}:${pad2(parsed.minute)}` : it.defaultTime)
+            .split(":").map(Number);
           init = makeDate(parsed.year, parsed.month, parsed.day, dh, dm);
         } else {
-          // 何も無ければ今日を基準年に寄せつつ、デフォ時刻
           const now = new Date();
           const y = Number(baseYear);
           const [dh, dm] = it.defaultTime.split(":").map(Number);
@@ -732,15 +743,7 @@
         }
 
         pickEl.value = toDatetimeLocalValue(init);
-
-        // showPicker() が使えるChromeはそれを使う（Win/Mac ChromeでOK）
-        if (typeof pickEl.showPicker === "function"){
-          pickEl.showPicker();
-        } else {
-          pickEl.focus();
-          pickEl.click();
-        }
-      });
+      }, { passive:true });
 
       pickEl.addEventListener("change", () => {
         const dt = fromDatetimeLocalValue(pickEl.value);
@@ -777,9 +780,12 @@
     const dtStartIn = document.getElementById("dtStartIn");
     const dtEndIn   = document.getElementById("dtEndIn");
     const dtWishIn  = document.getElementById("dtWishIn");
+
     const dtPublishStartOut = document.getElementById("dtPublishStartOut");
-    const dtPublishEndOut   = document.getElementById("dtPublishEndOut");
     const dtUsableStartOut  = document.getElementById("dtUsableStartOut");
+
+    const dtEndOutCombined  = document.getElementById("dtEndOutCombined");
+    const dtPublishEndOut   = document.getElementById("dtPublishEndOut");
     const dtUsableEndOut    = document.getElementById("dtUsableEndOut");
 
     // terms / notes
@@ -799,7 +805,6 @@
       const nRaw = (firstComeEl?.value ?? '').toString().trim();
       const digits = nRaw.replace(/[^\d]/g, '');
       const n = digits ? Number(digits) : 0;
-      // 0 は空扱い
       return (Number.isFinite(n) && n >= 1) ? n : 0;
     }
 
@@ -813,11 +818,10 @@
       const normalized = transform(floorText).replace(/[ 　]+/g,' ').trim();
       if (!normalized) return { floor: '', place: '' };
 
-      // 先頭に「地下N階 / N階 / 屋上」が来る想定
       const m = normalized.match(/^(地下\s*\d+階|地下\d+階|\d+階|屋上)\s*(.*)$/);
       if (!m) return { floor: '', place: normalized };
 
-      const floor = m[1].replace(/[ 　]+/g,''); // 地下 1階 → 地下1階
+      const floor = m[1].replace(/[ 　]+/g,'');
       const place = (m[2] || '').trim();
       return { floor, place };
     }
@@ -828,12 +832,10 @@
         if (place) return `${place}［${b}］`;
         return `［${b}］`;
       }
-      // ブランド未入力なら「売場」だけ（例：健康の庭）
       return place || '';
     }
 
     function applyUsageFromFirstCome(firstComeNum){
-      // 変換押下時のみ反映
       if (!overallLimitEl || !overallTotalEl) return;
 
       if (firstComeNum >= 1){
@@ -850,17 +852,16 @@
 
       const baseYear = getBaseYear();
 
-      // 開始
       const pStart = parseDateTimeLoose(dtStartIn.value || "", baseYear);
-      // 終了
       const pEnd   = parseDateTimeLoose(dtEndIn.value || "", baseYear);
 
-      // クリア系
       const clearOut = () => {
         if (dtPublishStartOut) dtPublishStartOut.value = "";
-        if (dtPublishEndOut)   dtPublishEndOut.value = "";
-        if (dtUsableStartOut)  dtUsableStartOut.value = "";
-        if (dtUsableEndOut)    dtUsableEndOut.value = "";
+        if (dtUsableStartOut)  dtUsableStartOut.value  = "";
+
+        if (dtEndOutCombined)  dtEndOutCombined.value  = "";
+        if (dtPublishEndOut)   dtPublishEndOut.value   = "";
+        if (dtUsableEndOut)    dtUsableEndOut.value    = "";
       };
 
       if (!pStart.ok || !pEnd.ok){
@@ -868,11 +869,11 @@
         return;
       }
 
-      // 開始時刻：無ければ 10:00
+      // 開始：時刻なし→10:00
       const startH = pStart.hasTime ? pStart.hour : 10;
       const startM = pStart.hasTime ? pStart.minute : 0;
 
-      // 終了時刻：無ければ 20:00
+      // 終了：時刻なし→20:00
       const endH = pEnd.hasTime ? pEnd.hour : 20;
       const endM = pEnd.hasTime ? pEnd.minute : 0;
 
@@ -901,10 +902,9 @@
       } else {
         const pWish = parseDateTimeLoose(wishRaw, baseYear);
         if (pWish.ok){
-          // 原則：開始年に寄せる（入力が年無しなら開始年扱い）
           let wy = pWish.hasYear ? pWish.year : startDt.getFullYear();
 
-          // ただし、開始が1月付近で、配布希望が11-12月なら「前年」解釈が自然なケースがあるため軽い補正
+          // 軽い補正（年なしで、開始が1-2月＆配布希望が11-12月なら前年寄せ）
           if (!pWish.hasYear){
             const wKey = monthDayKey(pWish.month, pWish.day);
             const sKey = monthDayKey(pStart.month, pStart.day);
@@ -919,14 +919,16 @@
         }
       }
 
-      // 出力反映
+      // 反映
       if (dtUsableStartOut)  dtUsableStartOut.value  = fmtYmdHm(startDt);
-      if (dtUsableEndOut)    dtUsableEndOut.value    = fmtYmdHm(endDt);
 
-      // 公開終了＝利用可能終了と必ず同一
-      if (dtPublishEndOut)   dtPublishEndOut.value   = fmtYmdHm(endDt);
+      const endStr = fmtYmdHm(endDt);
+      if (dtEndOutCombined)  dtEndOutCombined.value  = endStr;
 
-      // 公開開始
+      // 統合だが、内部的には両方同じ値として保持（将来CMSに分配しやすい）
+      if (dtPublishEndOut)   dtPublishEndOut.value   = endStr;
+      if (dtUsableEndOut)    dtUsableEndOut.value    = endStr;
+
       if (dtPublishStartOut) dtPublishStartOut.value = pubStartDt ? fmtYmdHm(pubStartDt) : "";
     }
 
@@ -937,9 +939,7 @@
       const src = input.value || '';
       const titleResult = buildTitleResult(src, firstComeNum);
 
-      // 部門（未選択なら付けない）
       const div = (divisionEl?.value ?? '').toString().trim();
-
       if (outTitle) outTitle.value = titleResult;
       if (outAdmin) outAdmin.value = (div ? (div + titleResult) : titleResult);
 
@@ -955,11 +955,11 @@
       // 日時設定
       applyDatetime();
 
-      // ご利用条件 / 注意事項（独自ルールなし：transformのみ）
+      // ご利用条件 / 注意事項
       if (outTerms && inTerms) outTerms.value = transform(inTerms.value || '').replace(/[ \t]+$/gm,'').trimEnd();
       if (outNotes && inNotes) outNotes.value = transform(inNotes.value || '').replace(/[ \t]+$/gm,'').trimEnd();
 
-      // クーポン利用条件（先着人数から反映）
+      // クーポン利用条件
       applyUsageFromFirstCome(firstComeNum);
 
       toast('変換しました');
@@ -981,7 +981,6 @@
       const target = String(valueOrText ?? '').trim();
       if (!target) return false;
 
-      // value一致を優先
       const byValue = Array.from(selectEl.options).find(o => (o.value ?? '').trim() === target);
       if (byValue){
         selectEl.value = byValue.value;
@@ -990,7 +989,6 @@
         return true;
       }
 
-      // text一致 fallback
       const byText = Array.from(selectEl.options).find(o => (o.textContent ?? '').trim() === target);
       if (byText){
         selectEl.value = byText.value;
@@ -1006,7 +1004,6 @@
       const t = String(panelH2Text ?? '').trim();
       if (!t) return false;
 
-      // 「クーポン利用条件」ブロック内を優先して探す（見出しが変わっても強い）
       const sets = Array.from(document.querySelectorAll('.set'));
       const couponSet =
         sets.find(s => (s.querySelector('.set-title')?.textContent || '').includes('クーポン利用条件')) || null;
@@ -1030,14 +1027,13 @@
       // カテゴリのデフォルト：アプリクーポン
       setSelectByValueOrText(document.getElementById('category'), 'アプリクーポン');
 
-      // 会員ひとりが利用可能な回数のデフォルト：1（ID直）
+      // 会員ひとりが利用可能な回数のデフォルト：1
       const per = document.getElementById('perMemberLimit');
       if (per){
         per.value = '1';
         per.dispatchEvent(new Event('input', { bubbles:true }));
         per.dispatchEvent(new Event('change', { bubbles:true }));
       } else {
-        // 念のためのfallback（見出しは現状のHTMLに合わせる）
         setFieldByPanelTitle('会員ひとりが利用可能な回数', '1');
       }
 
@@ -1061,16 +1057,13 @@
         else el.value = '';
       });
 
-      // ★ デフォルト値を復元
       applyDefaults();
-
       toast('クリアしました');
     }
 
     var vb = document.getElementById('ver');
     if (vb) vb.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
 
-    // ★ 初回表示時もデフォルトを適用（任意だがおすすめ）
     document.addEventListener('DOMContentLoaded', applyDefaults);
   })();
   </script>
