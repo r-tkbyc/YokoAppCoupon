@@ -732,6 +732,21 @@
       const pickEl = document.getElementById(it.pickerId);
       if (!textEl || !pickEl) continue;
 
+      // ★ dt-picker全体クリックで必ず開く（datetime-localの“右側だけ開く”問題を潰す）
+      const wrap = pickEl.closest('.dt-picker');
+      if (wrap){
+        wrap.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          try{
+            if (typeof pickEl.showPicker === "function") pickEl.showPicker();
+            else pickEl.click();
+          }catch(_){
+            // noop
+          }
+        });
+      }
+
       // クリック直前（ユーザー操作中）に初期値を仕込む：これが一番安定
       pickEl.addEventListener("pointerdown", () => {
         const baseYear = getBaseYear();
