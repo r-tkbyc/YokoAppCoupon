@@ -173,21 +173,32 @@
   }
 
   function setRichText(prose, text){
-    const t = (text ?? "").toString();
-    if (!t.trim()) return false;
-
-    // 2000文字制限はCMS側にあるのでここでは触らない（必要なら後で）
-    const escaped = t
+    const raw = (text ?? "").toString();
+    if (!raw.trim()) return false;
+  
+    // 改行を \n に統一
+    const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  
+    // HTMLエスケープ
+    const escapeHtml = (s) => s
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n");
-
-    const html = "<p>" + escaped.replace(/\n/g, "<br>") + "</p>";
-    prose.innerHTML = html;
+      .replace(/>/g, "&gt;");
+  
+    // ★ 1行＝1段落（<p>）として組み立てる
+    // 空行は <p><br></p> にして段落の空行を維持する
+    const lines = normalized.split("\n");
+    const html = lines.map(line => {
+      const esc = escapeHtml(line);
+      return (esc === "") ? "<p><br></p>" : `<p>${esc}</p>`;
+    }).join("");
+  
+    prose.innerHTML = html || "<p><br></p>";
+  
+    // ProseMirrorに変更を認識させる
     prose.dispatchEvent(new Event("input", { bubbles: true }));
     prose.dispatchEvent(new Event("blur", { bubbles: true }));
+  
     return true;
   }
 
