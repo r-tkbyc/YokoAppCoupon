@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.6 - 2026-01-22 -->
-  <meta name="app-version" content="v1.1.6">
+  <!-- Text Formatter v1.1.7 - 2026-01-23 -->
+  <meta name="app-version" content="v1.1.7">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -108,6 +108,18 @@
     }
   }
 
+  /* 4列（日時設定：入力3 + 年） */
+  .date-row{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: var(--gap);
+  }
+  @media (min-width: 960px){
+    .date-row{
+      grid-template-columns: 1fr 1fr 1fr 220px;
+    }
+  }
+
   input, select{
     width: 100%;
     height: var(--btn-h);
@@ -134,6 +146,35 @@
   input[type="number"]{ appearance: textfield; }
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
+
+  /* 日時：テキスト＋ピッカー */
+  .dt-line{
+    display:flex;
+    gap: var(--gap);
+    align-items:center;
+  }
+  .dt-line input.dt-text{
+    flex: 1;
+    min-width: 0;
+  }
+  .dt-btn{
+    width: 28px;
+    padding: 0 !important;
+    text-align:center;
+  }
+  .dt-hidden{
+    position:absolute;
+    left:-99999px;
+    top:-99999px;
+    width:1px;
+    height:1px;
+    opacity:0;
+    pointer-events:none;
+  }
+  .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.1px;
+  }
   </style>
 </head>
 
@@ -260,6 +301,70 @@
       </div>
     </section>
 
+    <!-- ★ 日時設定 -->
+    <section class="set" data-set="datetime">
+      <div class="set-head">
+        <h2 class="set-title">日時設定</h2>
+        <div class="actions">
+          <select id="baseYear" data-persist="1" title="基準年（リセットしても保持）">
+            <option value="2026">2026</option>
+            <option value="2027">2027</option>
+            <option value="2028">2028</option>
+            <option value="2029">2029</option>
+            <option value="2030">2030</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="date-row">
+        <section class="panel">
+          <h2>入力（開始日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtStartIn" type="text" placeholder="例：2/18（水） / 8月11日">
+            <button class="dt-btn" type="button" data-open-picker="dtStartPicker" title="日時を選択">📅</button>
+          </div>
+          <input class="dt-hidden" id="dtStartPicker" type="datetime-local">
+        </section>
+
+        <section class="panel">
+          <h2>入力（終了日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtEndIn" type="text" placeholder="例：3/4 / 1/10">
+            <button class="dt-btn" type="button" data-open-picker="dtEndPicker" title="日時を選択">📅</button>
+          </div>
+          <input class="dt-hidden" id="dtEndPicker" type="datetime-local">
+        </section>
+
+        <section class="panel">
+          <h2>入力（配布希望日時）</h2>
+          <div class="dt-line">
+            <input class="dt-text mono" id="dtWishIn" type="text" placeholder="未記入なら開始の1日前 17:00">
+            <button class="dt-btn" type="button" data-open-picker="dtWishPicker" title="日時を選択">📅</button>
+          </div>
+          <input class="dt-hidden" id="dtWishPicker" type="datetime-local">
+        </section>
+
+        <section class="panel">
+          <h2>出力（公開期間 / 開始日時）</h2>
+          <input class="mono" id="dtPublishStartOut" type="text" readonly placeholder="（変換で反映）">
+          <div style="height:4px"></div>
+          <h2>出力（利用可能期間 / 開始日時）</h2>
+          <input class="mono" id="dtUsableStartOut" type="text" readonly placeholder="（変換で反映）">
+        </section>
+      </div>
+
+      <div class="row">
+        <section class="panel">
+          <h2>出力（公開期間 / 終了日時）</h2>
+          <input class="mono" id="dtPublishEndOut" type="text" readonly placeholder="（変換で反映）">
+        </section>
+        <section class="panel">
+          <h2>出力（利用可能期間 / 終了日時）</h2>
+          <input class="mono" id="dtUsableEndOut" type="text" readonly placeholder="（変換で反映）">
+        </section>
+      </div>
+    </section>
+
     <!-- ご利用条件 -->
     <section class="set" data-set="terms">
       <div class="set-head">
@@ -332,13 +437,29 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.5";
-  const APP_BUILD = "2026-01-21";
+  const APP_VERSION = "v1.1.7";
+  const APP_BUILD = "2026-01-23";
   const PRICE_SPACE_RULE_ENABLED = false;
+
+  // 日時設定：基準年の初期値（今年は2026）
+  const DEFAULT_BASE_YEAR = "2026";
+  const LS_BASE_YEAR_KEY = "yk_base_year_v1";
 
   document.addEventListener("DOMContentLoaded", () => {
     const el = document.getElementById("ver");
     if (el) el.textContent = `${APP_VERSION} (${APP_BUILD})`;
+
+    // 基準年：localStorage優先で復元
+    const by = document.getElementById("baseYear");
+    if (by){
+      const saved = localStorage.getItem(LS_BASE_YEAR_KEY);
+      const val = (saved && saved.trim()) ? saved.trim() : DEFAULT_BASE_YEAR;
+      if ([...by.options].some(o => o.value === val)) by.value = val;
+      by.addEventListener("change", () => localStorage.setItem(LS_BASE_YEAR_KEY, by.value));
+    }
+
+    // datetime-localピッカー：選択 → テキストへ書き戻し
+    wirePickers();
   });
 
   // =============================
@@ -475,6 +596,161 @@
   }
 
   // =============================
+  //  日時設定：パース＆整形
+  // =============================
+  function pad2(n){ return String(n).padStart(2,'0'); }
+
+  function fmtYmdHm(d){
+    const y = d.getFullYear();
+    const m = pad2(d.getMonth()+1);
+    const da= pad2(d.getDate());
+    const h = pad2(d.getHours());
+    const mi= pad2(d.getMinutes());
+    return `${y}/${m}/${da} ${h}:${mi}`;
+  }
+
+  function toHalfDigits(s){
+    return String(s||'').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
+  }
+
+  function stripWeekday(s){
+    return String(s||'')
+      .replace(/[（(][^）)]*[）)]/g,'') // (水) / （日）
+      .trim();
+  }
+
+  function parseDateTimeLoose(text, baseYear){
+    let s = transform(toHalfDigits(text || '')).trim();
+    s = stripWeekday(s);
+    if (!s) return { ok:false };
+
+    // 時刻
+    let hour = null, minute = null, hasTime = false;
+    const tm = s.match(/(\d{1,2})\s*:\s*(\d{2})/);
+    if (tm){
+      hour = Number(tm[1]);
+      minute = Number(tm[2]);
+      hasTime = true;
+    }
+
+    // 年月日
+    let year = null, month = null, day = null, hasYear = false;
+
+    // 1) YYYY/MM/DD or YYYY-MM-DD
+    let m = s.match(/(\d{4})\s*[\/\-\.年]\s*(\d{1,2})\s*[\/\-\.月]\s*(\d{1,2})\s*(?:日)?/);
+    if (m){
+      year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
+    } else {
+      // 2) M/D
+      m = s.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
+      if (m){
+        year = Number(baseYear); month = Number(m[1]); day = Number(m[2]);
+      } else {
+        // 3) M月D日
+        m = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+        if (m){
+          year = Number(baseYear); month = Number(m[1]); day = Number(m[2]);
+        } else {
+          // 4) YYYY/MM/DD HH:mm（スラッシュだけのパターンも一応）
+          m = s.match(/(\d{4})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
+          if (m){
+            year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
+          }
+        }
+      }
+    }
+
+    if (!year || !month || !day) return { ok:false };
+
+    // 時刻の整合
+    if (hasTime){
+      if (!(hour>=0 && hour<=23 && minute>=0 && minute<=59)) return { ok:false };
+    }
+
+    return { ok:true, year, month, day, hour, minute, hasTime, hasYear };
+  }
+
+  function makeDate(y,m,d,h,mi){
+    const dt = new Date(y, m-1, d, h, mi, 0, 0);
+    // 妥当性チェック（Dateが繰り上げるのを防ぐ）
+    if (dt.getFullYear()!==y || (dt.getMonth()+1)!==m || dt.getDate()!==d) return null;
+    return dt;
+  }
+
+  function monthDayKey(month, day){ return month*100 + day; }
+
+  // datetime-local用にISOっぽい形へ（ローカル）
+  function toDatetimeLocalValue(d){
+    const y = d.getFullYear();
+    const m = pad2(d.getMonth()+1);
+    const da= pad2(d.getDate());
+    const h = pad2(d.getHours());
+    const mi= pad2(d.getMinutes());
+    return `${y}-${m}-${da}T${h}:${mi}`;
+  }
+
+  function fromDatetimeLocalValue(v){
+    // "YYYY-MM-DDTHH:mm"
+    const m = String(v||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+    if (!m) return null;
+    return makeDate(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]));
+  }
+
+  function getBaseYear(){
+    const by = document.getElementById("baseYear");
+    return (by?.value || DEFAULT_BASE_YEAR).toString();
+  }
+
+  function wirePickers(){
+    const map = [
+      { textId:"dtStartIn", pickerId:"dtStartPicker", defaultTime:"10:00" },
+      { textId:"dtEndIn",   pickerId:"dtEndPicker",   defaultTime:"20:00" },
+      { textId:"dtWishIn",  pickerId:"dtWishPicker",  defaultTime:"17:00" },
+    ];
+
+    for (const it of map){
+      const textEl = document.getElementById(it.textId);
+      const pickEl = document.getElementById(it.pickerId);
+      const btn = document.querySelector(`[data-open-picker="${it.pickerId}"]`);
+      if (!textEl || !pickEl || !btn) continue;
+
+      btn.addEventListener("click", () => {
+        // テキストが入っていれば、それを元にピッカー初期値を作る
+        const baseYear = getBaseYear();
+        const parsed = parseDateTimeLoose(textEl.value || "", baseYear);
+
+        let init = null;
+        if (parsed.ok){
+          const [dh, dm] = (parsed.hasTime ? `${pad2(parsed.hour)}:${pad2(parsed.minute)}` : it.defaultTime).split(":").map(Number);
+          init = makeDate(parsed.year, parsed.month, parsed.day, dh, dm);
+        } else {
+          // 何も無ければ今日を基準年に寄せつつ、デフォ時刻
+          const now = new Date();
+          const y = Number(baseYear);
+          const [dh, dm] = it.defaultTime.split(":").map(Number);
+          init = makeDate(y, now.getMonth()+1, now.getDate(), dh, dm) || new Date(y, now.getMonth(), now.getDate(), dh, dm, 0, 0);
+        }
+
+        pickEl.value = toDatetimeLocalValue(init);
+
+        // showPicker() が使えるChromeはそれを使う（Win/Mac ChromeでOK）
+        if (typeof pickEl.showPicker === "function"){
+          pickEl.showPicker();
+        } else {
+          pickEl.focus();
+          pickEl.click();
+        }
+      });
+
+      pickEl.addEventListener("change", () => {
+        const dt = fromDatetimeLocalValue(pickEl.value);
+        if (!dt) return;
+        textEl.value = fmtYmdHm(dt);
+      });
+    }
+  }
+
+  // =============================
   //  変換（タイトルブロックのボタンで全体を更新）
   // =============================
   (function(){
@@ -496,6 +772,15 @@
     const outFloor  = floorSet?.querySelector('.output-floor');
     const inBrand   = floorSet?.querySelector('.input-brand');
     const outBrand  = floorSet?.querySelector('.output-brand');
+
+    // datetime
+    const dtStartIn = document.getElementById("dtStartIn");
+    const dtEndIn   = document.getElementById("dtEndIn");
+    const dtWishIn  = document.getElementById("dtWishIn");
+    const dtPublishStartOut = document.getElementById("dtPublishStartOut");
+    const dtPublishEndOut   = document.getElementById("dtPublishEndOut");
+    const dtUsableStartOut  = document.getElementById("dtUsableStartOut");
+    const dtUsableEndOut    = document.getElementById("dtUsableEndOut");
 
     // terms / notes
     const termsSet = document.querySelector('.set[data-set="terms"]');
@@ -560,6 +845,91 @@
       }
     }
 
+    function applyDatetime(){
+      if (!dtStartIn || !dtEndIn) return;
+
+      const baseYear = getBaseYear();
+
+      // 開始
+      const pStart = parseDateTimeLoose(dtStartIn.value || "", baseYear);
+      // 終了
+      const pEnd   = parseDateTimeLoose(dtEndIn.value || "", baseYear);
+
+      // クリア系
+      const clearOut = () => {
+        if (dtPublishStartOut) dtPublishStartOut.value = "";
+        if (dtPublishEndOut)   dtPublishEndOut.value = "";
+        if (dtUsableStartOut)  dtUsableStartOut.value = "";
+        if (dtUsableEndOut)    dtUsableEndOut.value = "";
+      };
+
+      if (!pStart.ok || !pEnd.ok){
+        clearOut();
+        return;
+      }
+
+      // 開始時刻：無ければ 10:00
+      const startH = pStart.hasTime ? pStart.hour : 10;
+      const startM = pStart.hasTime ? pStart.minute : 0;
+
+      // 終了時刻：無ければ 20:00
+      const endH = pEnd.hasTime ? pEnd.hour : 20;
+      const endM = pEnd.hasTime ? pEnd.minute : 0;
+
+      // 年跨ぎ（終了が開始より前なら翌年）
+      const startKey = monthDayKey(pStart.month, pStart.day);
+      const endKey   = monthDayKey(pEnd.month, pEnd.day);
+      const endYear  = (endKey < startKey) ? (pStart.year + 1) : pStart.year;
+
+      const startDt = makeDate(pStart.year, pStart.month, pStart.day, startH, startM);
+      const endDt   = makeDate(endYear, pEnd.month, pEnd.day, endH, endM);
+
+      if (!startDt || !endDt){
+        clearOut();
+        return;
+      }
+
+      // 公開開始（配布希望）
+      let pubStartDt = null;
+      const wishRaw = (dtWishIn?.value || "").trim();
+
+      if (!wishRaw){
+        // 未記入：開始の1日前 17:00（固定）
+        pubStartDt = new Date(startDt.getTime());
+        pubStartDt.setDate(pubStartDt.getDate() - 1);
+        pubStartDt.setHours(17,0,0,0);
+      } else {
+        const pWish = parseDateTimeLoose(wishRaw, baseYear);
+        if (pWish.ok){
+          // 原則：開始年に寄せる（入力が年無しなら開始年扱い）
+          let wy = pWish.hasYear ? pWish.year : startDt.getFullYear();
+
+          // ただし、開始が1月付近で、配布希望が11-12月なら「前年」解釈が自然なケースがあるため軽い補正
+          if (!pWish.hasYear){
+            const wKey = monthDayKey(pWish.month, pWish.day);
+            const sKey = monthDayKey(pStart.month, pStart.day);
+            if (wKey > sKey && pStart.month <= 2 && pWish.month >= 11){
+              wy = startDt.getFullYear() - 1;
+            }
+          }
+
+          const wh = pWish.hasTime ? pWish.hour : 17;
+          const wm = pWish.hasTime ? pWish.minute : 0;
+          pubStartDt = makeDate(wy, pWish.month, pWish.day, wh, wm);
+        }
+      }
+
+      // 出力反映
+      if (dtUsableStartOut)  dtUsableStartOut.value  = fmtYmdHm(startDt);
+      if (dtUsableEndOut)    dtUsableEndOut.value    = fmtYmdHm(endDt);
+
+      // 公開終了＝利用可能終了と必ず同一
+      if (dtPublishEndOut)   dtPublishEndOut.value   = fmtYmdHm(endDt);
+
+      // 公開開始
+      if (dtPublishStartOut) dtPublishStartOut.value = pubStartDt ? fmtYmdHm(pubStartDt) : "";
+    }
+
     function onConvert(){
       const firstComeNum = parseFirstComeNumber();
 
@@ -581,6 +951,9 @@
         const brandText = inBrand ? (inBrand.value || '') : '';
         outBrand.value = buildBrandResult(place, brandText);
       }
+
+      // 日時設定
+      applyDatetime();
 
       // ご利用条件 / 注意事項（独自ルールなし：transformのみ）
       if (outTerms && inTerms) outTerms.value = transform(inTerms.value || '').replace(/[ \t]+$/gm,'').trimEnd();
@@ -667,11 +1040,22 @@
         // 念のためのfallback（見出しは現状のHTMLに合わせる）
         setFieldByPanelTitle('会員ひとりが利用可能な回数', '1');
       }
+
+      // 基準年：保存値があればそれ、無ければDEFAULT（※リセットで保持）
+      const by = document.getElementById("baseYear");
+      if (by){
+        const saved = localStorage.getItem(LS_BASE_YEAR_KEY);
+        const val = (saved && saved.trim()) ? saved.trim() : DEFAULT_BASE_YEAR;
+        if ([...by.options].some(o => o.value === val)) by.value = val;
+      }
     }
 
     function clearAll(){
       var nodes = document.querySelectorAll('input, textarea, select');
       nodes.forEach(function(el){
+        // ★ data-persist はクリアしない
+        if (el.getAttribute && el.getAttribute('data-persist') === '1') return;
+
         if (el.tagName === 'SELECT') el.selectedIndex = 0;
         else if (el.type === 'checkbox' || el.type === 'radio') el.checked = false;
         else el.value = '';
