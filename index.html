@@ -361,7 +361,7 @@
         <div class="actions"></div>
       </div>
 
-      <div class="tri-row">
+      <div class="quad-row">
         <section class="panel">
           <h2>会員ひとりが利用可能な回数</h2>
           <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1">
@@ -379,6 +379,18 @@
           <h2>全体で利用可能な回数</h2>
           <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で反映）">
         </section>
+        
+        <section class="panel">
+          <h2>配布方法</h2>
+          <select id="distributionMethod">
+            <option value="全員に配布" selected>全員に配布</option>
+            <option value="会員ユーザーに条件を指定して配布">会員ユーザーに条件を指定して配布</option>
+            <option value="仮会員ユーザーに条件を指定して配布">仮会員ユーザーに条件を指定して配布</option>
+            <option value="会員ユーザーに会員統合 ID を指定して配布">会員ユーザーに会員統合 ID を指定して配布</option>
+            <option value="会員ユーザーに二次元コード・URLで配布">会員ユーザーに二次元コード・URLで配布</option>
+          </select>
+        </section>
+        
       </div>
     </section>
 
