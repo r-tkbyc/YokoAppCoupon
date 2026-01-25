@@ -32,14 +32,33 @@
 
   function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
 
+  async function waitFor(fn, timeoutMs = 2500, intervalMs = 50){
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs){
+      const v = fn();
+      if (v) return v;
+      await wait(intervalMs);
+    }
+    return null;
+  }
+
+  function normText(s){
+    return (s || "").replace(/\s+/g, " ").trim();
+  }
+
   function setNativeValue(el, value){
     if (!el) return false;
-    const proto = Object.getPrototypeOf(el);
+    const v = (value ?? "").toString();
+
+    const proto = el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+
     const desc = Object.getOwnPropertyDescriptor(proto, "value");
     if (desc && desc.set){
-      desc.set.call(el, value);
+      desc.set.call(el, v);
     } else {
-      el.value = value;
+      el.value = v;
     }
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -47,12 +66,8 @@
   }
 
   // =============================
-  //  label 起点の入力探索
+  // label起点の探索
   // =============================
-  function normText(s){
-    return (s || "").replace(/\s+/g, " ").trim();
-  }
-
   function findLabelElementStrict(labelText){
     const target = normText(labelText);
     if (!target) return null;
@@ -84,7 +99,7 @@
   }
 
   // =============================
-  //  Mantine Select（表示グループ/カテゴリ/配布方法 など）
+  // Mantine Select
   // =============================
   async function setMantineSelectByLabel(labelText, valueText){
     const input = findInputByLabelText(labelText);
@@ -98,6 +113,7 @@
     input.click();
     await wait(80);
 
+    // Portal想定で body から拾う
     const options = $$('[role="option"]', document.body);
     const opt =
       options.find(o => normText(o.textContent) === want) ||
@@ -132,7 +148,7 @@
   }
 
   // =============================
-  //  RichText（ProseMirror / tiptap）
+  // RichText（ProseMirror / tiptap）
   // =============================
   function findRichEditorByLabel(labelText){
     const lb = findLabelElementIncludes(labelText);
@@ -171,7 +187,7 @@
   }
 
   // =============================
-  //  NumberInput（type=text）
+  // NumberInput（type=text）
   // =============================
   function setNumberInputByLabel(labelText, valueText, allowOverwriteIfCurrentIn = []){
     const input = findInputByLabelText(labelText);
@@ -179,18 +195,19 @@
 
     const cur = (input.value ?? "").toString();
     const want = (valueText ?? "").toString();
+    if (!want.trim()) return false;
 
     if (allowOverwriteIfCurrentIn.length > 0){
-      const ok = allowOverwriteIfCurrentIn.includes(cur);
-      if (!ok) return false;
+      if (!allowOverwriteIfCurrentIn.includes(cur)) return false;
     } else {
       if (cur && cur.trim()) return false;
     }
+
     return setNativeValue(input, want);
   }
 
   // =============================
-  //  Switch（role="switch" checkbox）
+  // Switch（role="switch"）
   // =============================
   function setSwitchByLabel(labelText, enabled){
     const labels = $$("label");
@@ -212,207 +229,247 @@
   }
 
   // =============================
-  //  TextInput（ブランド入居フロア / ブランド名 など）
-  // =============================
-  function setTextInputByLabelIfEmpty(labelText, valueText){
-    const input = findInputByLabelTextStrict(labelText) || findInputByLabelText(labelText);
-    if (!input) return false;
-    if ((input.value || "").toString().trim()) return false;
-
-    const want = (valueText ?? "").toString();
-    if (!want.trim()) return false;
-
-    return setNativeValue(input, want);
-  }
-
-  // =============================
-  //  日時（Mantine DateTimePicker）を “UI操作で確定” させる
+  // 日時（公開期間 / 利用可能期間）: Popover操作で確定まで行う
   // =============================
   function parseYmdHm(text){
     const s = (text ?? "").toString().trim();
     if (!s) return null;
+
+    // YYYY/MM/DD HH:mm
     const m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
     if (!m) return null;
+
     const y = Number(m[1]);
     const mo = Number(m[2]);
     const d = Number(m[3]);
-    const h = Number(m[4]);
-    const mi = Number(m[5]);
-    if (![y,mo,d,h,mi].every(Number.isFinite)) return null;
-    return { y, mo, d, h, mi };
+    const hh = Number(m[4]);
+    const mm = Number(m[5]);
+    if (![y, mo, d, hh, mm].every(Number.isFinite)) return null;
+
+    return { y, mo, d, hh, mm, hhmm: `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}` };
   }
 
-  function isVisible(el){
-    if (!el) return false;
-    const st = getComputedStyle(el);
-    if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) === 0) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 2 && r.height > 2;
+  function closeAllPopovers(){
+    // ESCで閉じられることが多い
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    // クリックアウトも効くことが多い
+    document.body?.click?.();
   }
 
-  function getActiveDateDropdown(){
-    // “今開いている” dropdown をできるだけそれっぽく取る
-    const drops = $$('[data-dates-dropdown="true"][role="dialog"]', document.body)
-      .filter(isVisible);
+  function getDropdownIdFromTarget(target){
+    if (!target) return null;
+    // buttonに aria-controls="mantine-xxxx-dropdown" が付くケースが多い
+    const ac = target.getAttribute("aria-controls");
+    if (ac) return ac;
 
-    if (!drops.length) return null;
-
-    // 末尾の方が新しく開いた可能性が高い
-    return drops[drops.length - 1];
-  }
-
-  async function openDropdownByClick(targetBtn){
-    if (!targetBtn) return null;
-    targetBtn.click();
-    await wait(80);
-    // 少し待って出現を拾う
-    for (let i=0; i<10; i++){
-      const dd = getActiveDateDropdown();
-      if (dd) return dd;
-      await wait(50);
-    }
+    // たまに target id から推測できる
+    const id = target.id || "";
+    if (id.endsWith("-target")) return id.replace(/-target$/, "-dropdown");
     return null;
   }
 
-  function getHeaderYM(dropdown){
-    const levelBtn = dropdown.querySelector("button.mantine-DateTimePicker-calendarHeaderLevel");
-    if (!levelBtn) return null;
-    const t = (levelBtn.textContent || "").trim(); // 例: "1月 2026"
-    const m = t.match(/(\d+)\s*月\s*(\d{4})/);
+  function headerTextFromDropdown(dd){
+    const h =
+      dd.querySelector(".mantine-DateTimePicker-calendarHeaderLevel") ||
+      dd.querySelector(".mantine-DatePicker-calendarHeaderLevel");
+    return normText(h?.textContent || "");
+  }
+
+  function parseHeaderYm(text){
+    // "1月 2026"
+    const m = (text || "").match(/^(\d{1,2})月\s+(\d{4})$/);
     if (!m) return null;
     return { mo: Number(m[1]), y: Number(m[2]) };
   }
 
-  async function moveMonthTo(dropdown, y, mo){
-    // 最大24回まで prev/next で合わせる（過剰ループ防止）
-    for (let i=0; i<24; i++){
-      const cur = getHeaderYM(dropdown);
-      if (!cur || (!Number.isFinite(cur.y) || !Number.isFinite(cur.mo))) return false;
+  function clickMonthNav(dd, dir /* 'next'|'previous' */, times){
+    const btnSelDT = `.mantine-DateTimePicker-calendarHeaderControl[data-direction="${dir}"]`;
+    const btnSelD  = `.mantine-DatePicker-calendarHeaderControl[data-direction="${dir}"]`;
+    const btn = dd.querySelector(btnSelDT) || dd.querySelector(btnSelD);
+    if (!btn) return false;
 
-      if (cur.y === y && cur.mo === mo) return true;
+    for (let i=0; i<times; i++){
+      btn.click();
+    }
+    return true;
+  }
+
+  async function moveToMonth(dd, wantY, wantMo){
+    // 最大24ステップで合わせる
+    for (let i=0; i<24; i++){
+      const curText = headerTextFromDropdown(dd);
+      const cur = parseHeaderYm(curText);
+      if (!cur) break;
+
+      if (cur.y === wantY && cur.mo === wantMo) return true;
 
       const curIndex = cur.y * 12 + (cur.mo - 1);
-      const tgtIndex = y * 12 + (mo - 1);
-      const dir = (tgtIndex > curIndex) ? "next" : "previous";
+      const wantIndex = wantY * 12 + (wantMo - 1);
+      const diff = wantIndex - curIndex;
 
-      const btn = dropdown.querySelector(`button[data-direction="${dir}"]`);
-      if (!btn) return false;
-      btn.click();
+      if (diff === 0) return true;
+
+      const dir = diff > 0 ? "next" : "previous";
+      // 1クリックずつが安定
+      clickMonthNav(dd, dir, 1);
       await wait(60);
     }
     return false;
   }
 
-  function findDayButton(dropdown, y, mo, d){
-    // aria-label 例: "26 1月 2026"
-    const aria = `${d} ${mo}月 ${y}`;
+  function findDayButton(dd, y, mo, d){
+    // aria-label="30 1月 2026"
+    const want1 = `${d} ${mo}月 ${y}`;
     const btn =
-      dropdown.querySelector(`button[aria-label="${aria}"]`) ||
-      dropdown.querySelector(`button.mantine-DateTimePicker-day[aria-label="${aria}"]`) ||
+      dd.querySelector(`button[aria-label="${want1}"]`) ||
       null;
-    return btn;
+    if (btn) return btn;
+
+    // 厳密に一致しない環境向けにfallback
+    const all = $$("button[aria-label]", dd);
+    return all.find(b => {
+      const al = (b.getAttribute("aria-label") || "").trim();
+      return al.includes(`${d} `) && al.includes(`${mo}月`) && al.includes(`${y}`);
+    }) || null;
   }
 
-  async function setTimeInDropdown(dropdown, hh, mi){
-    const timeInput = dropdown.querySelector('input[type="time"]');
-    if (!timeInput) return false;
+  function findSubmitButton(dd){
+    // DateTimePicker の submit
+    const dt = dd.querySelector("button.mantine-DateTimePicker-submitButton");
+    if (dt) return dt;
 
-    const v = `${String(hh).padStart(2,"0")}:${String(mi).padStart(2,"0")}`;
-    setNativeValue(timeInput, v);
-    await wait(40);
+    // チェックアイコンのActionIcon（path d を見て判定）
+    const buttons = $$("button", dd);
+    for (const b of buttons){
+      const path = b.querySelector("svg path");
+      const d = path?.getAttribute("d") || "";
+      if (d.includes("M4 4.586") && d.includes("L1.707 2.293")) return b;
+    }
+    // 最後の手段：一番最後のボタン
+    return buttons[buttons.length - 1] || null;
+  }
+
+  async function ensureAllDayOffIfNeed(dd){
+    // 終了側に "終日" switch がある場合、timeを入れたいならOFFにしてtime inputを出す
+    const sw = dd.querySelector('input[type="checkbox"][role="switch"]');
+    const timeInput = dd.querySelector('input[type="time"]');
+    if (!sw) return true;
+
+    // timeを扱うUIがあるならOFFに寄せる（checkedだとtimeが出ない/効かないケースがある）
+    if (sw.checked){
+      sw.click();
+      await wait(80);
+    }
+    // time input がなければこの段階で出現待ち
+    if (!timeInput){
+      await waitFor(() => dd.querySelector('input[type="time"]'), 1200, 60);
+    }
     return true;
   }
 
-  async function submitDropdown(dropdown){
-    const submit =
-      dropdown.querySelector("button.mantine-DateTimePicker-submitButton") ||
-      dropdown.querySelector("button.mantine-DateTimePicker-submitButton[type='button']") ||
-      dropdown.querySelector("button[data-mantine-stop-propagation='true'].mantine-DateTimePicker-submitButton") ||
-      dropdown.querySelector(".mantine-DateTimePicker-timeWrapper button[type='button']") ||
-      null;
+  async function setDateTimeByTarget(targetBtn, text){
+    const dt = parseYmdHm(text);
+    if (!targetBtn || !dt) return false;
 
-    if (!submit) return false;
-    submit.click();
-    await wait(80);
-    return true;
-  }
+    closeAllPopovers();
+    await wait(60);
 
-  async function setDateTimeViaPickerButton(targetBtn, y, mo, d, hh, mi){
-    const dd = await openDropdownByClick(targetBtn);
+    const ddId = getDropdownIdFromTarget(targetBtn);
+
+    targetBtn.scrollIntoView?.({ block: "center" });
+    targetBtn.click();
+
+    // dropdown取得
+    const dd = ddId
+      ? await waitFor(() => document.getElementById(ddId), 3000, 60)
+      : await waitFor(() => document.querySelector('.mantine-Popover-dropdown[role="dialog"]'), 3000, 60);
+
     if (!dd) return false;
 
     // 月移動
-    const okMove = await moveMonthTo(dd, y, mo);
-    if (!okMove) return false;
+    await moveToMonth(dd, dt.y, dt.mo);
 
-    // day クリック
-    const dayBtn = findDayButton(dd, y, mo, d);
+    // 日付クリック
+    const dayBtn = findDayButton(dd, dt.y, dt.mo, dt.d);
     if (!dayBtn) return false;
     dayBtn.click();
-    await wait(50);
+    await wait(80);
 
-    // time セット
-    const okTime = await setTimeInDropdown(dd, hh, mi);
-    if (!okTime) return false;
+    // time（あれば入れる）
+    const timeInputBefore = dd.querySelector('input[type="time"]');
+    if (timeInputBefore || dd.querySelector('input[type="checkbox"][role="switch"]')){
+      await ensureAllDayOffIfNeed(dd);
+      const timeInput = dd.querySelector('input[type="time"]');
+      if (timeInput){
+        setNativeValue(timeInput, dt.hhmm);
+        await wait(80);
+      }
+    }
 
-    // ✓確定
-    const okSubmit = await submitDropdown(dd);
-    if (!okSubmit) return false;
+    // ✅確定
+    const submit = findSubmitButton(dd);
+    if (!submit) return false;
+    submit.click();
+
+    // 閉じるまで待つ（重なり防止）
+    if (ddId){
+      await waitFor(() => !document.getElementById(ddId), 2500, 60);
+    } else {
+      // idが取れなかった場合：今開いてるdropdownが消えるまで
+      await wait(120);
+      await waitFor(() => !document.querySelector('.mantine-Popover-dropdown[role="dialog"]'), 2500, 60);
+    }
 
     return true;
   }
 
-  async function setMantineDateRangeByLabel_UI(labelText, startText, endText){
+  function isPlaceholderBtn(btn){
+    if (!btn) return true;
+    const t = (btn.textContent || "").trim();
+    // ここは環境で文言が揺れるので「空ならプレースホルダ扱い」
+    return !t || t === "開始日時" || t === "終了日時";
+  }
+
+  async function setMantineDateRangeByLabel(labelText, startText, endText){
     const lb = findLabelElementStrict(labelText);
     if (!lb) return false;
 
     const stack = lb.closest(".mantine-Stack-root") || lb.parentElement;
     if (!stack) return false;
 
-    // 開始/終了ボタン
-    const buttons = Array.from(stack.querySelectorAll("button[aria-haspopup='dialog']"));
-    if (!buttons.length) return false;
+    // 開始ボタン：DateTimePicker-input を優先（data-dates-input=true も多い）
+    const startBtn =
+      stack.querySelector('button.mantine-DateTimePicker-input[aria-haspopup="dialog"]') ||
+      stack.querySelector('button[data-dates-input="true"][aria-haspopup="dialog"]') ||
+      stack.querySelector('button[aria-haspopup="dialog"]');
 
-    const startBtn = buttons[0] || null;
+    // 終了ボタン：name=end が確実
     const endBtn =
-      stack.querySelector("button[name='end'][aria-haspopup='dialog']") ||
-      buttons[1] ||
+      stack.querySelector('button[name="end"][aria-haspopup="dialog"]') ||
+      stack.querySelector('button[id$="-target"][name="end"]') ||
       null;
 
     let changed = false;
 
-    // hidden input（存在することが多い）※最終的な保持確認用
-    const hiddenStart = stack.querySelector('input[type="hidden"][name="start"]') || null;
-    const hiddenEnd   = stack.querySelector('input[type="hidden"][name="end"]') || null;
-
-    if (startText){
-      const p = parseYmdHm(startText);
-      if (p){
-        // 「既に埋まってるなら触らない」方針（安全）
-        const already = (hiddenStart?.value || "").trim();
-        if (!already){
-          const ok = await setDateTimeViaPickerButton(startBtn, p.y, p.mo, p.d, p.h, p.mi);
-          if (ok) changed = true;
-        }
-      }
+    // 開始（空っぽ/プレースホルダなら入れる）
+    if (startText && startBtn && isPlaceholderBtn(startBtn)){
+      const ok = await setDateTimeByTarget(startBtn, startText);
+      if (ok) changed = true;
+      await wait(120);
     }
 
-    if (endText){
-      const p = parseYmdHm(endText);
-      if (p){
-        const already = (hiddenEnd?.value || "").trim();
-        if (!already){
-          const ok = await setDateTimeViaPickerButton(endBtn, p.y, p.mo, p.d, p.h, p.mi);
-          if (ok) changed = true;
-        }
-      }
+    // 終了（空っぽ/プレースホルダなら入れる）
+    if (endText && endBtn && isPlaceholderBtn(endBtn)){
+      const ok = await setDateTimeByTarget(endBtn, endText);
+      if (ok) changed = true;
+      await wait(120);
     }
 
     return changed;
   }
 
   // =============================
-  //  main
+  // Main
   // =============================
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
@@ -451,26 +508,31 @@
           if (ok) changed = true;
         }
 
-        // ★ブランド入居フロア / ブランド名（TextInput）
-        if (p.brandFloor){
-          if (setTextInputByLabelIfEmpty("ブランド入居フロア", p.brandFloor)) changed = true;
-        }
-        if (p.brandName){
-          if (setTextInputByLabelIfEmpty("ブランド名", p.brandName)) changed = true;
-        }
-
         // 日時（公開期間 / 利用可能期間）
-        //  - 公開期間（開始）  : p.publishStart
-        //  - 公開期間（終了）  : p.publishEnd
-        //  - 利用可能期間（開始）: p.usableStart
-        //  - 利用可能期間（終了）: p.usableEnd
+        // p.publishStart / p.publishEnd / p.usableStart / p.usableEnd
         if (p.publishStart || p.publishEnd){
-          const ok = await setMantineDateRangeByLabel_UI("公開期間", p.publishStart, p.publishEnd);
+          const ok = await setMantineDateRangeByLabel("公開期間", p.publishStart, p.publishEnd);
           if (ok) changed = true;
         }
         if (p.usableStart || p.usableEnd){
-          const ok = await setMantineDateRangeByLabel_UI("利用可能期間", p.usableStart, p.usableEnd);
+          const ok = await setMantineDateRangeByLabel("利用可能期間", p.usableStart, p.usableEnd);
           if (ok) changed = true;
+        }
+
+        // ★重要：ブランド入居フロア / ブランド名（TextInputなので “直接入力”）
+        if (p.brandFloor){
+          const bf = findInputByLabelTextStrict("ブランド入居フロア") || findInputByLabelText("ブランド入居フロア");
+          if (bf && !(bf.value || "").toString().trim()){
+            setNativeValue(bf, p.brandFloor);
+            changed = true;
+          }
+        }
+        if (p.brandName){
+          const bn = findInputByLabelTextStrict("ブランド名") || findInputByLabelText("ブランド名");
+          if (bn && !(bn.value || "").toString().trim()){
+            setNativeValue(bn, p.brandName);
+            changed = true;
+          }
         }
 
         // ご利用条件 / 注意事項（RichText：空なら入れる）
@@ -495,7 +557,7 @@
         // 全体の利用回数制限（switch）
         if (typeof p.totalLimitEnabled === "boolean"){
           if (setSwitchByLabel("全体の利用回数制限", p.totalLimitEnabled)) changed = true;
-          await wait(80);
+          await wait(120);
         }
 
         // 全体で利用可能な回数（“あり”の時に出現）
