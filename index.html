@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.1.8 - 2026-01-23 -->
-  <meta name="app-version" content="v1.1.8">
+  <!-- Text Formatter v1.1.9 - 2026-01-25 -->
+  <meta name="app-version" content="v1.1.9">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -399,7 +399,7 @@
       <div class="set-head">
         <h2 class="set-title">日時設定</h2>
         <div class="actions">
-          <select id="baseYear" data-persist="1" title="基準年（リセットしても保持）">
+          <select id="baseYear" title="基準年（毎回デフォルト）">
             <option value="2026">2026</option>
             <option value="2027">2027</option>
             <option value="2028">2028</option>
@@ -474,25 +474,23 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.1.8";
-  const APP_BUILD = "2026-01-23";
+  const APP_VERSION = "v1.1.98";
+  const APP_BUILD = "2026-01-25";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   // 日時設定：基準年の初期値（今年は2026）
   const DEFAULT_BASE_YEAR = "2026";
-  const LS_BASE_YEAR_KEY = "yk_base_year_v1";
 
   document.addEventListener("DOMContentLoaded", () => {
     const el = document.getElementById("ver");
     if (el) el.textContent = `${APP_VERSION} (${APP_BUILD})`;
 
-    // 基準年：localStorage優先で復元
+    // 基準年：毎回デフォルト（保持しない）
     const by = document.getElementById("baseYear");
     if (by){
-      const saved = localStorage.getItem(LS_BASE_YEAR_KEY);
-      const val = (saved && saved.trim()) ? saved.trim() : DEFAULT_BASE_YEAR;
-      if ([...by.options].some(o => o.value === val)) by.value = val;
-      by.addEventListener("change", () => localStorage.setItem(LS_BASE_YEAR_KEY, by.value));
+      if ([...by.options].some(o => o.value === DEFAULT_BASE_YEAR)) {
+        by.value = DEFAULT_BASE_YEAR;
+      }
     }
 
     wirePickers();
@@ -1065,6 +1063,9 @@
       // 配布方法のデフォルト：全員に配布（保持しない）
       setSelectByValueOrText(document.getElementById('distributionMethod'), '全員に配布');
 
+      // 基準年のデフォルト：毎回 DEFAULT_BASE_YEAR（保持しない）
+      setSelectByValueOrText(document.getElementById('baseYear'), DEFAULT_BASE_YEAR);
+
       // 会員ひとりが利用可能な回数のデフォルト：1
       const per = document.getElementById('perMemberLimit');
       if (per){
@@ -1073,14 +1074,6 @@
         per.dispatchEvent(new Event('change', { bubbles:true }));
       } else {
         setFieldByPanelTitle('会員ひとりが利用可能な回数', '1');
-      }
-
-      // 基準年：保存値があればそれ、無ければDEFAULT（※リセットで保持）
-      const by = document.getElementById("baseYear");
-      if (by){
-        const saved = localStorage.getItem(LS_BASE_YEAR_KEY);
-        const val = (saved && saved.trim()) ? saved.trim() : DEFAULT_BASE_YEAR;
-        if ([...by.options].some(o => o.value === val)) by.value = val;
       }
     }
 
