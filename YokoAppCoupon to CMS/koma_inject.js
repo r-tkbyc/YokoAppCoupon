@@ -15,6 +15,16 @@
     return String(Number(n));
   }
 
+  function pickValueByIds(ids){
+    for (const id of ids){
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const v = (el.value ?? "").toString();
+      if (v.trim()) return v;
+    }
+    return "";
+  }
+
   function insertToCMSButton(){
     const titleSet = document.querySelector('.set[data-set="title"]');
     const actions = titleSet ? $(".actions", titleSet) : null;
@@ -72,6 +82,17 @@
     const terms = $(".output-terms", termsSet)?.value ?? "";
     const notes = $(".output-notes", notesSet)?.value ?? "";
 
+    // 日時設定（出力から取る：IDは環境差に備えて候補を持つ）
+    // - 利用可能期間（開始）: 10:00 付与済みの出力
+    // - 公開/利用可能期間（終了）: 20:00 付与済みの出力（共通）
+    // - 公開期間（開始）: 配布希望日時 or 開始日時-1日 17:00 の出力
+    const usableStart = pickValueByIds(["dtUseStartOut","dtAvailStartOut","dtUsableStartOut","dtUseStart","dtAvailStart","dtStartOutUse"]);
+    const publishStart = pickValueByIds(["dtPubStartOut","dtPublishStartOut","dtPublicStartOut","dtPubStart","dtStartOutPub","dtStartOutPublic"]);
+    const endBoth = pickValueByIds(["dtEndOut","dtEndOutBoth","dtBothEndOut","dtPubEndOut","dtUsableEndOut","dtAvailEndOut","dtEndOutAll"]);
+
+    // 配布方法（select）
+    const distributionMethod = ($("#distributionMethod")?.value ?? "").toString().trim();
+
     // クーポン利用条件（ID直取りで安定化）
     let perUser = cleanNum($("#perMemberLimit")?.value ?? "");
     perUser = perUser || "1"; // 空なら1（保険）
@@ -96,6 +117,12 @@
 
         terms,
         notes,
+
+        publishStart,
+        publishEnd: endBoth,
+        usableStart,
+        usableEnd: endBoth,
+        distributionMethod,
 
         perUser,
         totalLimitEnabled,
