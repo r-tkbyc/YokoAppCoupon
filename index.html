@@ -379,7 +379,7 @@
           <h2>全体で利用可能な回数</h2>
           <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で反映）">
         </section>
-        
+
         <section class="panel">
           <h2>配布方法</h2>
           <select id="distributionMethod">
@@ -1061,6 +1061,9 @@
     function applyDefaults(){
       // カテゴリのデフォルト：アプリクーポン
       setSelectByValueOrText(document.getElementById('category'), 'アプリクーポン');
+      
+      // 配布方法のデフォルト：全員に配布（保持しない）
+      setSelectByValueOrText(document.getElementById('distributionMethod'), '全員に配布');
 
       // 会員ひとりが利用可能な回数のデフォルト：1
       const per = document.getElementById('perMemberLimit');
