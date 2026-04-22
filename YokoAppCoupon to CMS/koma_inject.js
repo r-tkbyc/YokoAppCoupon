@@ -93,6 +93,9 @@
     // 配布方法（select）
     const distributionMethod = ($("#distributionMethod")?.value ?? "").toString().trim();
 
+    // 並び替え優先度
+    const sortPriority = cleanNum($("#sortPriority")?.value ?? "");
+
     // クーポン利用条件（ID直取りで安定化）
     let perUser = cleanNum($("#perMemberLimit")?.value ?? "");
     perUser = perUser || "1"; // 空なら1（保険）
@@ -123,6 +126,7 @@
         usableStart,
         usableEnd: endBoth,
         distributionMethod,
+        sortPriority,
 
         perUser,
         totalLimitEnabled,

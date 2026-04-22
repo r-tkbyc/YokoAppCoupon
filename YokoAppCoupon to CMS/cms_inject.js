@@ -549,6 +549,11 @@
           }
         }
 
+        // 並べ替え優先度（CMS側が"0"の時のみ上書き）
+        if (p.sortPriority){
+          if (setNumberInputByLabel("並べ替え優先度", p.sortPriority, ["", "0"])) changed = true;
+        }
+
         // 会員ひとりが利用可能な回数（基本空 or 初期値なら入れる）
         if (p.perUser){
           if (setNumberInputByLabel("会員ひとりが利用可能な回数", p.perUser, ["", "1"])) changed = true;
