@@ -875,7 +875,7 @@
     }
 
     function buildBrandResult(place, brandText){
-      const b = transform(brandText).replace(/^[［\[]+|[］\]]+$/g, '').trim();
+      const b = transform(brandText).trim().replace(/^[［\[]+|[］\]]+$/g, '').trim();
       if (b){
         if (place) return `${place}［${b}］`;
         return `［${b}］`;
