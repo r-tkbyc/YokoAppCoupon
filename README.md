@@ -9,7 +9,7 @@ GitHub Pages 上のフォームで入力・整形し、Chrome拡張経由でCMS�
 
 | コンポーネント | バージョン | 更新日 |
 |---|---|---|
-| index.html（ツール本体） | v1.2.0 | 2026-04-22 |
+| index.html（ツール本体） | v1.2.1 | 2026-05-08 |
 | Chrome拡張（YokoAppCoupon to CMS） | v1.1.6 | — |
 
 ---
@@ -162,15 +162,16 @@ GitHub Pages (index.html)          Chrome拡張                    CMS
 
 | # | 関数名 | 処理内容 |
 |---|---|---|
-| 1 | `urlProtect` | URLを退避（変換の影響を受けないようにプレースホルダに置換） |
-| 2 | `siCompatUnits` | Unicode合字単位を分解（㎝→cm, ㎖→ml, ㎜→mm） |
-| 3 | `fullwidthBracketsAndWave` | `[ ]` → `［ ］`、`~` `〜` → `～`、`→` → `～` |
-| 4 | `lexicalReplacements` | 語彙統一（POPUP→POP UP, 是非→ぜひ, 髙島屋→高島屋 等） |
-| 5 | `widthNorm` | 英数字→半角、記号→全角。括弧類の正規化。英数字間の記号は半角維持 |
-| 6 | `fixTelColon` | `TEL:` / `TEL：` → `TEL：` |
-| 7 | `spaceBreak` | 連続スペース→1つ、3行以上の連続空行→2行 |
-| 8 | `ensureZenkakuSpaceBeforePrice` | 金額前の全角スペース挿入（現在無効: `PRICE_SPACE_RULE_ENABLED = false`） |
-| 9 | `urlRestore` | 退避URLを復元 |
+| 1 | `stripWrappingQuotes` | 前後のダブルクオーテーション・空行・スペースを除去（Excelセル内改行コピペ対策） |
+| 2 | `urlProtect` | URLを退避（変換の影響を受けないようにプレースホルダに置換） |
+| 3 | `siCompatUnits` | Unicode合字単位を分解（㎝→cm, ㎖→ml, ㎜→mm） |
+| 4 | `fullwidthBracketsAndWave` | `[ ]` → `［ ］`、`~` `〜` → `～`、`→` → `～` |
+| 5 | `lexicalReplacements` | 語彙統一（POPUP→POP UP, 是非→ぜひ, 髙島屋→高島屋 等） |
+| 6 | `widthNorm` | 英数字→半角、記号→全角。括弧類の正規化。英数字間の記号は半角維持 |
+| 7 | `fixTelColon` | `TEL:` / `TEL：` → `TEL：` |
+| 8 | `spaceBreak` | 連続スペース→1つ、3行以上の連続空行→2行 |
+| 9 | `ensureZenkakuSpaceBeforePrice` | 金額前の全角スペース挿入（現在無効: `PRICE_SPACE_RULE_ENABLED = false`） |
+| 10 | `urlRestore` | 退避URLを復元 |
 
 ### 語彙置換一覧（`lexicalReplacements`）
 
@@ -254,14 +255,21 @@ GitHub Pages (index.html)          Chrome拡張                    CMS
 
 ## クリア動作
 
-右上のバージョンバッジ（`#ver`）クリックで全フィールドをリセット。
+右上のバージョンバッジ（`#ver`）クリックで部分リセット。完全リセットはブラウザ再読み込みで対応。
 
-- 全 `input`, `textarea`, `select` を初期化（`data-persist="1"` を除く）
-- デフォルト復帰:
-  - カテゴリ → アプリクーポン
-  - 配布方法 → 全員に配布
-  - 基準年 → 2026
-  - 会員ひとりが利用可能な回数 → 1
+**保持する項目（`data-persist="1"`）:**
+- 部門（`#division`）
+- 表示グループ（`#displayGroup`）
+- カテゴリ（`#category`）
+- 会員ひとりが利用可能な回数（`#perMemberLimit`）
+- 並び替え優先度（`#sortPriority`）
+
+**クリア対象:** 上記以外の全 `input`, `textarea`, `select`
+
+**クリア後のデフォルト復帰:**
+- 配布方法 → 全員に配布
+- 基準年 → 2026
+- 全体の利用回数制限 → なし
 
 ---
 

@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.2.0 - 2026-04-22 -->
-  <meta name="app-version" content="v1.2.0">
+  <!-- Text Formatter v1.2.1 - 2026-05-08 -->
+  <meta name="app-version" content="v1.2.1">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -249,7 +249,7 @@
       <div class="quad-row">
         <section class="panel" data-field="division">
           <h2>部門</h2>
-          <select id="division">
+          <select id="division" data-persist="1">
             <option value="" selected>選択してください</option>
             <option value="①">①</option>
             <option value="②">②</option>
@@ -268,7 +268,7 @@
 
         <section class="panel" data-field="display-group">
           <h2>表示グループ</h2>
-          <select id="displayGroup">
+          <select id="displayGroup" data-persist="1">
             <option value="" selected>選択してください</option>
             <option value="ビューティー">ビューティー</option>
             <option value="キャンペーン">キャンペーン</option>
@@ -282,7 +282,7 @@
 
         <section class="panel" data-field="category">
           <h2>カテゴリ</h2>
-          <select id="category">
+          <select id="category" data-persist="1">
             <option value="" selected>選択してください</option>
             <option value="アプリクーポン" selected>アプリクーポン</option>
             <option value="アプリ会員様限定ポイントアップ">アプリ会員様限定ポイントアップ</option>
@@ -375,7 +375,7 @@
       <div class="quint-row">
         <section class="panel">
           <h2>会員ひとりが利用可能な回数</h2>
-          <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1">
+          <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1" data-persist="1">
         </section>
 
         <section class="panel">
@@ -404,7 +404,7 @@
 
         <section class="panel">
           <h2>並び替え優先度</h2>
-          <input id="sortPriority" type="number" min="0" step="1" placeholder="例：1">
+          <input id="sortPriority" type="number" min="0" step="1" placeholder="例：1" data-persist="1">
         </section>
       </div>
     </section>
@@ -489,8 +489,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.2.0";
-  const APP_BUILD = "2026-04-22";
+  const APP_VERSION = "v1.2.1";
+  const APP_BUILD = "2026-05-08";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   // 日時設定：基準年の初期値（今年は2026）
@@ -515,6 +515,10 @@
   //  ルール適用パイプライン（全体）
   // =============================
   const rulesGlobal = [];
+
+  rulesGlobal.push(function stripWrappingQuotes(s){
+    return String(s||'').replace(/^[\s"]+|[\s"]+$/g, '');
+  });
 
   rulesGlobal.push(function urlProtect(s){
     const urlRegex = /(https?:\/\/[!-~]+)/g;
@@ -1072,24 +1076,14 @@
     }
 
     function applyDefaults(){
-      // カテゴリのデフォルト：アプリクーポン
-      setSelectByValueOrText(document.getElementById('category'), 'アプリクーポン');
-      
-      // 配布方法のデフォルト：全員に配布（保持しない）
+      // 配布方法のデフォルト：全員に配布（クリア対象）
       setSelectByValueOrText(document.getElementById('distributionMethod'), '全員に配布');
 
-      // 基準年のデフォルト：毎回 DEFAULT_BASE_YEAR（保持しない）
+      // 基準年のデフォルト：DEFAULT_BASE_YEAR（クリア対象）
       setSelectByValueOrText(document.getElementById('baseYear'), DEFAULT_BASE_YEAR);
 
-      // 会員ひとりが利用可能な回数のデフォルト：1
-      const per = document.getElementById('perMemberLimit');
-      if (per){
-        per.value = '1';
-        per.dispatchEvent(new Event('input', { bubbles:true }));
-        per.dispatchEvent(new Event('change', { bubbles:true }));
-      } else {
-        setFieldByPanelTitle('会員ひとりが利用可能な回数', '1');
-      }
+      // 全体の利用回数制限のデフォルト：なし（クリア対象）
+      setSelectByValueOrText(document.getElementById('overallLimit'), 'なし');
     }
 
     function clearAll(){
