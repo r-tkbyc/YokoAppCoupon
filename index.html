@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.2.1 - 2026-05-08 -->
-  <meta name="app-version" content="v1.2.1">
+  <!-- Text Formatter v1.4.0 - 2026-07-31 -->
+  <meta name="app-version" content="v1.4.0">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -199,6 +199,13 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     letter-spacing: 0.1px;
   }
+
+  /* 日時が読み取れなかった欄 */
+  input.dt-bad, input.dt-bad:focus{
+    border-color:#e5534b;
+    box-shadow:0 0 0 1px #e5534b inset;
+    outline-color:#e5534b;
+  }
   </style>
 </head>
 
@@ -375,7 +382,7 @@
       <div class="quint-row">
         <section class="panel">
           <h2>会員ひとりが利用可能な回数</h2>
-          <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1" data-persist="1">
+          <input id="perMemberLimit" type="number" min="0" step="1" value="1" placeholder="例：1" data-persist="1" data-nopaste="1">
         </section>
 
         <section class="panel">
@@ -388,7 +395,8 @@
 
         <section class="panel">
           <h2>全体で利用可能な回数</h2>
-          <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で反映）">
+          <!-- 先着人数から自動反映されるため一括ペーストの対象外 -->
+          <input id="overallTotal" type="number" min="0" step="1" placeholder="（変換で反映）" data-nopaste="1">
         </section>
 
         <section class="panel">
@@ -404,7 +412,7 @@
 
         <section class="panel">
           <h2>並び替え優先度</h2>
-          <input id="sortPriority" type="number" min="0" step="1" placeholder="例：1" data-persist="1">
+          <input id="sortPriority" type="number" min="0" step="1" placeholder="例：1" data-persist="1" data-nopaste="1">
         </section>
       </div>
     </section>
@@ -489,8 +497,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.2.1";
-  const APP_BUILD = "2026-05-08";
+  const APP_VERSION = "v1.4.0";
+  const APP_BUILD = "2026-07-31";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   // 日時設定：基準年の初期値（今年は2026）
@@ -641,11 +649,11 @@
   }
 
   const toastEl = document.getElementById('toast');
-  function toast(msg){
+  function toast(msg, ms){
     toastEl.textContent = msg;
     toastEl.classList.add('show');
     clearTimeout(toast._t);
-    toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
+    toast._t = setTimeout(()=>toastEl.classList.remove('show'), ms || 1200);
   }
 
   // =============================
@@ -666,60 +674,129 @@
     return String(s||'').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
   }
 
-  function stripWeekday(s){
-    return String(s||'')
-      .replace(/[（(][^）)]*[）)]/g,'')
-      .trim();
+  // -----------------------------------------------------------------
+  //  日時パース
+  // -----------------------------------------------------------------
+  // 100人規模の担当者がフリー入力するため、書き方のゆれを3段で吸収する。
+  //   ① 正規化   … 全角/区切り/括弧注記/ダッシュを統一
+  //   ② 日付抽出 … 見つけた日付を文字列から取り除く
+  //   ③ 時刻抽出 … 日付を除いた「残り」だけを見る
+  //
+  // ②で日付を先に取り除くのが要。これにより "8-15"（月日）と
+  // "17-00"（時分）を同じ形のまま取り違えずに済む。
+  //
+  // ★ transform() は通さない。テキスト整形用の widthNorm が
+  //    " / " を全角 "／" に変えてしまい "8 / 15" が読めなくなるなど、
+  //    日時にとっては副作用しかないため。
+
+  const ERA_BASE = { '令和':2018, '平成':1988, '昭和':1925, 'R':2018, 'H':1988, 'S':1925 };
+  const TIME_MARKER = /時|:|分|午前|午後|AM|PM/i;
+
+  function normalizeDateTimeText(s){
+    let t = String(s || '');
+
+    // 全角英数・全角記号（／：（）－ など）→ 半角、全角スペース → 半角
+    t = t.replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    t = t.replace(/[！-～]/g,          ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    t = t.replace(/　/g, ' ');
+
+    // 括弧の注記（曜日など）は “スペース” に置き換える。
+    // ★空文字で消すと "9/6(日)10:00" → "9/610:00" となり 9月61日 と誤読される。
+    t = t.replace(/[(\[{【〔][^)\]}】〕]*[)\]}】〕]/g, ' ');
+
+    t = t.replace(/[‐‑‒–—―ー−]/g, '-');    // 各種ダッシュ
+    t = t.replace(/[〜～]|=>|->|→/g, '~');  // 範囲記号
+
+    return t.replace(/\s+/g, ' ').trim();
+  }
+
+  // 最初に見つかった「月日として妥当な」マッチを返す
+  function firstPlausible(s, re, build){
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(s)) !== null){
+      const got = build(m);
+      if (got && got.month >= 1 && got.month <= 12 && got.day >= 1 && got.day <= 31){
+        return Object.assign(got, { index: m.index, length: m[0].length });
+      }
+      if (re.lastIndex === m.index) re.lastIndex++;   // 無限ループ防止
+    }
+    return null;
+  }
+
+  function extractDate(s, baseYear){
+    const by = Number(baseYear);
+
+    // 1) 元号  R8/8/15 ・ 令和8年8月15日 ・ H31.2.18
+    let d = firstPlausible(s, /(令和|平成|昭和|[RHS])\s*(\d{1,2})\s*[年\/\-.]\s*(\d{1,2})\s*[月\/\-.]\s*(\d{1,2})\s*日?/gi, m => {
+      const key = m[1].length === 1 ? m[1].toUpperCase() : m[1];
+      const base = ERA_BASE[key];
+      if (base == null) return null;
+      return { year: base + Number(m[2]), month: +m[3], day: +m[4], hasYear: true };
+    });
+    if (d) return d;
+
+    // 2) YYYY/M/D ・ YYYY-M-D ・ YYYY.M.D ・ YYYY年M月D日
+    d = firstPlausible(s, /(?<!\d)(\d{4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})\s*日?(?!\d)/g,
+      m => ({ year: +m[1], month: +m[2], day: +m[3], hasYear: true }));
+    if (d) return d;
+
+    // 3) M月D日 ・ M月D
+    d = firstPlausible(s, /(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*日?(?!\d)/g,
+      m => ({ year: by, month: +m[1], day: +m[2], hasYear: false }));
+    if (d) return d;
+
+    // 4) M/D ・ M-D ・ M.D
+    return firstPlausible(s, /(?<!\d)(\d{1,2})\s*[\/\-.]\s*(\d{1,2})(?!\d)/g,
+      m => ({ year: by, month: +m[1], day: +m[2], hasYear: false }));
+  }
+
+  function extractTime(rest){
+    const pm = /午後|PM/i.test(rest);
+    const am = !pm && /午前|AM/i.test(rest);
+
+    let h = null, mi = null, m;
+
+    if ((m = rest.match(/(?<!\d)(\d{1,2})\s*時\s*半/)))            { h = +m[1]; mi = 30; }
+    else if ((m = rest.match(/(?<!\d)(\d{1,2})\s*時\s*(\d{1,2})\s*分?/))) { h = +m[1]; mi = +m[2]; }
+    else if ((m = rest.match(/(?<!\d)(\d{1,2})\s*時/)))            { h = +m[1]; mi = 0; }
+    else if ((m = rest.match(/(?<!\d)(\d{1,2})\s*[:.\-]\s*(\d{1,2})(?!\d)/))) { h = +m[1]; mi = +m[2]; }
+
+    if (h === null) return null;
+
+    if (pm && h < 12) h += 12;      // 午後5時 → 17:00
+    if (am && h === 12) h = 0;      // 午前12時 → 0:00（午後12時＝正午はそのまま）
+
+    if (!(h >= 0 && h <= 23 && mi >= 0 && mi <= 59)) return null;
+    return { hour: h, minute: mi };
   }
 
   function parseDateTimeLoose(text, baseYear){
-    let s = transform(toHalfDigits(text || '')).trim();
-    s = stripWeekday(s);
+    const s = normalizeDateTimeText(text);
     if (!s) return { ok:false };
 
-    // 時刻
-    let hour = null, minute = null, hasTime = false;
-    const tm = s.match(/(\d{1,2})\s*:\s*(\d{2})/);
-    if (tm){
-      hour = Number(tm[1]);
-      minute = Number(tm[2]);
-      hasTime = true;
-    }
+    const d = extractDate(s, baseYear);
+    if (!d) return { ok:false };
 
-    // 年月日
-    let year = null, month = null, day = null, hasYear = false;
+    // 日付部分を取り除いた残りから時刻を探す
+    const rest = (s.slice(0, d.index) + ' ' + s.slice(d.index + d.length)).trim();
+    const t = extractTime(rest);
 
-    // 1) YYYY/MM/DD or YYYY-MM-DD or YYYY年M月D日
-    let m = s.match(/(\d{4})\s*[\/\-\.年]\s*(\d{1,2})\s*[\/\-\.月]\s*(\d{1,2})\s*(?:日)?/);
-    if (m){
-      year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
-    } else {
-      // 2) M/D
-      m = s.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
-      if (m){
-        year = Number(baseYear); month = Number(m[1]); day = Number(m[2]);
-      } else {
-        // 3) M月D日
-        m = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-        if (m){
-          year = Number(baseYear); month = Number(m[1]); day = Number(m[2]);
-        } else {
-          // 4) YYYY/MM/DD
-          m = s.match(/(\d{4})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
-          if (m){
-            year = Number(m[1]); month = Number(m[2]); day = Number(m[3]); hasYear = true;
-          }
-        }
-      }
-    }
+    // 時刻らしき記述はあるのに読めなかった＝既定値で埋まってしまうケース。
+    // 黙って通すと 18時 が 20:00 に化けるので呼び出し側へ知らせる。
+    const timeUnparsed = !t && TIME_MARKER.test(rest);
 
-    if (!year || !month || !day) return { ok:false };
+    // 存在しない日付（2/30・13/1 など）はここで弾く
+    if (!makeDate(d.year, d.month, d.day, t ? t.hour : 0, t ? t.minute : 0)) return { ok:false };
 
-    if (hasTime){
-      if (!(hour>=0 && hour<=23 && minute>=0 && minute<=59)) return { ok:false };
-    }
-
-    return { ok:true, year, month, day, hour, minute, hasTime, hasYear };
+    return {
+      ok: true,
+      year: d.year, month: d.month, day: d.day, hasYear: d.hasYear,
+      hour:   t ? t.hour   : null,
+      minute: t ? t.minute : null,
+      hasTime: !!t,
+      timeUnparsed
+    };
   }
 
   function makeDate(y,m,d,h,mi){
@@ -899,89 +976,83 @@
       }
     }
 
+    // 読めた欄だけを出力する。1欄が読めなくても他は消さない。
+    // 戻り値は問題のあった欄のリスト（呼び出し側で赤枠＋トースト表示に使う）
     function applyDatetime(){
-      if (!dtStartIn || !dtEndIn) return;
+      if (!dtStartIn || !dtEndIn) return [];
 
       const baseYear = getBaseYear();
+      const issues = [];
 
-      const pStart = parseDateTimeLoose(dtStartIn.value || "", baseYear);
-      const pEnd   = parseDateTimeLoose(dtEndIn.value || "", baseYear);
-
-      const clearOut = () => {
-        if (dtPublishStartOut) dtPublishStartOut.value = "";
-        if (dtUsableStartOut)  dtUsableStartOut.value  = "";
-
-        if (dtEndOutCombined)  dtEndOutCombined.value  = "";
-        if (dtPublishEndOut)   dtPublishEndOut.value   = "";
-        if (dtUsableEndOut)    dtUsableEndOut.value    = "";
-      };
-
-      if (!pStart.ok || !pEnd.ok){
-        clearOut();
-        return;
+      function read(el, label){
+        if (!el) return null;
+        const raw = (el.value || "").trim();
+        if (!raw) return null;
+        const p = parseDateTimeLoose(raw, baseYear);
+        if (!p.ok){ issues.push({ el, label, kind:'ng' }); return null; }
+        if (p.timeUnparsed) issues.push({ el, label, kind:'time' });
+        return p;
       }
+
+      const pStart = read(dtStartIn, '開始日時');
+      const pEnd   = read(dtEndIn,   '終了日時');
+      const pWish  = read(dtWishIn,  '配布希望日時');
 
       // 開始：時刻なし→10:00
-      const startH = pStart.hasTime ? pStart.hour : 10;
-      const startM = pStart.hasTime ? pStart.minute : 0;
+      const startDt = pStart
+        ? makeDate(pStart.year, pStart.month, pStart.day,
+                   pStart.hasTime ? pStart.hour : 10, pStart.hasTime ? pStart.minute : 0)
+        : null;
 
-      // 終了：時刻なし→20:00
-      const endH = pEnd.hasTime ? pEnd.hour : 20;
-      const endM = pEnd.hasTime ? pEnd.minute : 0;
-
-      // 年跨ぎ（終了が開始より前なら翌年）
-      const startKey = monthDayKey(pStart.month, pStart.day);
-      const endKey   = monthDayKey(pEnd.month, pEnd.day);
-      const endYear  = (endKey < startKey) ? (pStart.year + 1) : pStart.year;
-
-      const startDt = makeDate(pStart.year, pStart.month, pStart.day, startH, startM);
-      const endDt   = makeDate(endYear, pEnd.month, pEnd.day, endH, endM);
-
-      if (!startDt || !endDt){
-        clearOut();
-        return;
+      // 終了：時刻なし→20:00 ／ 年跨ぎ（終了が開始より月日が前なら翌年）
+      let endDt = null;
+      if (pEnd){
+        let endYear = pEnd.year;
+        if (pStart && !pEnd.hasYear){
+          endYear = (monthDayKey(pEnd.month, pEnd.day) < monthDayKey(pStart.month, pStart.day))
+            ? pStart.year + 1
+            : pStart.year;
+        }
+        endDt = makeDate(endYear, pEnd.month, pEnd.day,
+                         pEnd.hasTime ? pEnd.hour : 20, pEnd.hasTime ? pEnd.minute : 0);
       }
 
-      // 公開開始（配布希望）
+      // 公開開始（配布希望）：未記入なら開始の1日前 17:00
       let pubStartDt = null;
-      const wishRaw = (dtWishIn?.value || "").trim();
+      if (pWish){
+        let wy = pWish.hasYear ? pWish.year : (startDt ? startDt.getFullYear() : Number(baseYear));
 
-      if (!wishRaw){
-        // 未記入：開始の1日前 17:00（固定）
+        // 軽い補正（年なしで、開始が1-2月＆配布希望が11-12月なら前年寄せ）
+        if (!pWish.hasYear && pStart
+            && monthDayKey(pWish.month, pWish.day) > monthDayKey(pStart.month, pStart.day)
+            && pStart.month <= 2 && pWish.month >= 11){
+          wy = startDt.getFullYear() - 1;
+        }
+
+        pubStartDt = makeDate(wy, pWish.month, pWish.day,
+                              pWish.hasTime ? pWish.hour : 17, pWish.hasTime ? pWish.minute : 0);
+      } else if (startDt && !(dtWishIn && (dtWishIn.value || "").trim())){
         pubStartDt = new Date(startDt.getTime());
         pubStartDt.setDate(pubStartDt.getDate() - 1);
         pubStartDt.setHours(17,0,0,0);
-      } else {
-        const pWish = parseDateTimeLoose(wishRaw, baseYear);
-        if (pWish.ok){
-          let wy = pWish.hasYear ? pWish.year : startDt.getFullYear();
-
-          // 軽い補正（年なしで、開始が1-2月＆配布希望が11-12月なら前年寄せ）
-          if (!pWish.hasYear){
-            const wKey = monthDayKey(pWish.month, pWish.day);
-            const sKey = monthDayKey(pStart.month, pStart.day);
-            if (wKey > sKey && pStart.month <= 2 && pWish.month >= 11){
-              wy = startDt.getFullYear() - 1;
-            }
-          }
-
-          const wh = pWish.hasTime ? pWish.hour : 17;
-          const wm = pWish.hasTime ? pWish.minute : 0;
-          pubStartDt = makeDate(wy, pWish.month, pWish.day, wh, wm);
-        }
       }
 
       // 反映
-      if (dtUsableStartOut)  dtUsableStartOut.value  = fmtYmdHm(startDt);
-
-      const endStr = fmtYmdHm(endDt);
+      const endStr = endDt ? fmtYmdHm(endDt) : "";
+      if (dtUsableStartOut)  dtUsableStartOut.value  = startDt ? fmtYmdHm(startDt) : "";
       if (dtEndOutCombined)  dtEndOutCombined.value  = endStr;
 
-      // 統合だが、内部的には両方同じ値として保持（将来CMSに分配しやすい）
+      // 統合だが、内部的には両方同じ値として保持（拡張は dtUsableEndOut を読む）
       if (dtPublishEndOut)   dtPublishEndOut.value   = endStr;
       if (dtUsableEndOut)    dtUsableEndOut.value    = endStr;
 
       if (dtPublishStartOut) dtPublishStartOut.value = pubStartDt ? fmtYmdHm(pubStartDt) : "";
+
+      // 問題のある欄を赤枠に
+      [dtStartIn, dtEndIn, dtWishIn].forEach(el => el && el.classList.remove('dt-bad'));
+      issues.forEach(i => i.el.classList.add('dt-bad'));
+
+      return issues;
     }
 
     function onConvert(){
@@ -1005,7 +1076,7 @@
       }
 
       // 日時設定
-      applyDatetime();
+      const dtIssues = applyDatetime();
 
       // ご利用条件 / 注意事項
       if (outTerms && inTerms) outTerms.value = transform(inTerms.value || '').replace(/[ \t]+$/gm,'').trimEnd();
@@ -1014,7 +1085,17 @@
       // クーポン利用条件
       applyUsageFromFirstCome(firstComeNum);
 
-      toast('変換しました');
+      // 日時が読めなかった欄は黙って空にせず、名指しで知らせる
+      const ng = dtIssues.filter(i => i.kind === 'ng').map(i => i.label);
+      const tm = dtIssues.filter(i => i.kind === 'time').map(i => i.label);
+      if (ng.length || tm.length){
+        let msg = '変換しました';
+        if (ng.length) msg += `／日時が読み取れません：${ng.join('・')}`;
+        if (tm.length) msg += `／時刻が読めず既定値を使用：${tm.join('・')}`;
+        toast(msg, 5000);
+      } else {
+        toast('変換しました');
+      }
     }
 
     if(btnConvert) btnConvert.addEventListener('click', onConvert);
@@ -1097,6 +1178,9 @@
         else el.value = '';
       });
 
+      // 日時欄の赤枠も消す
+      document.querySelectorAll('.dt-bad').forEach(function(el){ el.classList.remove('dt-bad'); });
+
       applyDefaults();
       toast('クリアしました');
     }
@@ -1105,6 +1189,168 @@
     if (vb) vb.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
 
     document.addEventListener('DOMContentLoaded', applyDefaults);
+  })();
+
+  // =============================
+  //  Excel複数セル → 複数欄へ一括ペースト
+  // =============================
+  // Excelで横方向に複数セルを選択してコピーし、任意の入力欄にペーストすると、
+  // その欄を起点に画面の並び順で下の欄へ順に流し込む。
+  //
+  // 対象外：
+  //   - select 全般（部門/表示グループ/カテゴリ/配布方法/全体の利用回数制限/基準年）
+  //   - data-nopaste="1" を付けた欄
+  //       会員ひとりが利用可能な回数・並び替え優先度 … data-persist で毎回保持するため
+  //       全体で利用可能な回数                     … 先着人数から自動反映されるため
+  (function(){
+    // -----------------------------
+    // 対象欄：画面に出ている自由入力欄のみ、DOM順
+    // -----------------------------
+    function getPasteTargets(){
+      return Array.from(document.querySelectorAll('textarea, input')).filter(el => {
+        if (el.readOnly || el.disabled) return false;          // 出力欄・互換用の隠しinput
+        if (el.dataset.nopaste === '1') return false;          // 明示的な対象外
+        if (el.tagName === 'INPUT'){
+          const t = (el.type || 'text').toLowerCase();
+          if (t !== 'text' && t !== 'number') return false;    // 📅ピッカー(datetime-local)等
+        }
+        return el.offsetParent !== null;                       // 非表示は除外
+      });
+    }
+
+    function labelOf(el){
+      const h2 = (el?.closest('.panel')?.querySelector('h2')?.textContent || '').trim();
+      const setTitle = (el?.closest('.set')?.querySelector('.set-title')?.textContent || '').trim();
+      if (!h2) return setTitle || '入力欄';
+      // 「入力」「入力（フロア・売場）」のような汎用見出しはセット名/括弧内で補う
+      if (/^入力/.test(h2)){
+        const inner = h2.replace(/^入力[（(]?/, '').replace(/[）)]$/, '').trim();
+        return inner || setTitle || h2;
+      }
+      return h2;
+    }
+
+    function normalizeCell(s){
+      return String(s ?? '')
+        .replace(/\u00a0/g, ' ')     // Excelが埋める &nbsp;
+        .replace(/\r\n?/g, '\n')
+        .trim();
+    }
+
+    // -----------------------------
+    // 1) text/html のテーブルから読む（Excel/スプレッドシートの正攻法）
+    //    セル内改行やタブを含んでいても境界が壊れない
+    // -----------------------------
+    function cellsFromHtml(html){
+      if (!html || !/<t[dhr][\s>]/i.test(html)) return null;
+
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const rows = Array.from(doc.querySelectorAll('tr'));
+      if (!rows.length) return null;
+
+      const out = [];
+      for (const tr of rows){
+        for (const td of Array.from(tr.querySelectorAll(':scope > td, :scope > th'))){
+          const clone = td.cloneNode(true);
+          clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+          out.push(normalizeCell(clone.textContent));
+        }
+      }
+      return out.length ? out : null;
+    }
+
+    // -----------------------------
+    // 2) text/plain のTSVから読む（html非提供の環境向けフォールバック）
+    //    ★タブが無いものは分割しない：改行だけの通常テキストを
+    //      複数欄にバラまいてしまう事故を防ぐ
+    // -----------------------------
+    function cellsFromTsv(text){
+      const s = String(text || '').replace(/\r\n?/g, '\n');
+      if (!s.includes('\t')) return null;
+
+      const out = [];
+      let cur = '', inQuotes = false;
+
+      for (let i = 0; i < s.length; i++){
+        const ch = s[i];
+        if (inQuotes){
+          if (ch !== '"'){ cur += ch; }
+          else if (s[i+1] === '"'){ cur += '"'; i++; }   // "" → "
+          else { inQuotes = false; }
+        } else if (ch === '"' && cur === ''){
+          inQuotes = true;                                // セル先頭の " だけを開始扱い
+        } else if (ch === '\t' || ch === '\n'){
+          out.push(normalizeCell(cur)); cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      out.push(normalizeCell(cur));
+
+      // コピー時に付く末尾の空セルを落とす
+      while (out.length && out[out.length - 1] === '') out.pop();
+      return out.length ? out : null;
+    }
+
+    // number欄が受け付けるセルの範囲（数字＋区切り＋簡単な単位）。
+    // これ以外の文字が混ざっている＝Excelの列とツールの欄がずれている可能性が高いので、
+    // 数字だけ拾って入れてしまうと "1階 化粧品" → 先着人数=1 のような
+    // 「もっともらしい誤り」が静かに通ってしまう。入れずに警告する。
+    const NUM_CELL_OK = /^[\d,\s名様人回件個]*$/;
+
+    function setFieldValue(el, raw){
+      let v = String(raw ?? '');
+
+      if (el.tagName === 'INPUT' && (el.type || '').toLowerCase() === 'number'){
+        const norm = toHalfDigits(v).replace(/，/g, ',');
+        if (!NUM_CELL_OK.test(norm)){
+          el.value = '';
+          el.dispatchEvent(new Event('input',  { bubbles:true }));
+          el.dispatchEvent(new Event('change', { bubbles:true }));
+          return false;                            // 列ずれの疑い
+        }
+        v = norm.replace(/[^\d]/g, '');            // "30名" → "30"、"３０" → "30"
+      }
+
+      el.value = v;
+      el.dispatchEvent(new Event('input',  { bubbles:true }));
+      el.dispatchEvent(new Event('change', { bubbles:true }));
+      return true;
+    }
+
+    document.addEventListener('paste', (e) => {
+      const el = e.target;
+      if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT')) return;
+
+      const targets = getPasteTargets();
+      const startIdx = targets.indexOf(el);
+      if (startIdx < 0) return;
+
+      const dt = e.clipboardData;
+      if (!dt) return;
+
+      const cells = cellsFromHtml(dt.getData('text/html')) || cellsFromTsv(dt.getData('text/plain'));
+      // 単一セル／通常テキストは既定のペースト動作にまかせる
+      if (!cells || cells.length <= 1) return;
+
+      e.preventDefault();
+
+      const n = Math.min(cells.length, targets.length - startIdx);
+      const rejected = [];
+      for (let i = 0; i < n; i++){
+        const el = targets[startIdx + i];
+        if (!setFieldValue(el, cells[i])) rejected.push(labelOf(el));
+      }
+
+      const from = labelOf(targets[startIdx]);
+      const to   = labelOf(targets[startIdx + n - 1]);
+      const dropped = cells.length - n;
+
+      let msg = `${n}件を流し込みました（${from} → ${to}）`;
+      if (dropped > 0)      msg += `／${dropped}件は欄が足りず破棄`;
+      if (rejected.length)  msg += `／数値でないため未入力：${rejected.join('・')}`;
+      toast(msg, rejected.length || dropped ? 3600 : 1200);
+    });
   })();
   </script>
 </body>
