@@ -1,10 +1,27 @@
 (() => {
   const MSG_TYPE = "YK_COUPON_TO_CMS";
 
+  // ★ 二重登録の防止
+  //
+  // background.js は content script が載っていないと判断すると executeScript で
+  // このファイルを注入してくる（"Receiving end does not exist" の救済パス）。
+  // 既に生きているところへ再注入されると listener が積み上がり、toCMS 1回で
+  // 2回走って日時ピッカーの同じポップオーバーを奪い合う（実機で発生）。
+  //
+  // 単純な「読み込み済みフラグ」ではダメ。拡張だけ再読み込みするとフラグは
+  // ページに残ったまま古いインスタンスだけが無効化されるので、新しい方が
+  // 登録をスキップして救済パスごと死ぬ。
+  // 「前のインスタンスを解除してから自分を登録する」なら両方の状況で正しい。
+  try {
+    window.__YK_CMS_INJECT_DISPOSE__?.();
+  } catch (e) {
+    // 無効化済みの旧インスタンス（Extension context invalidated）。無視してよい
+  }
+
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  function showToast(msg){
+  function showToast(msg, ms){
     let toast = document.getElementById("__yk_toast__");
     if (!toast){
       toast = document.createElement("div");
@@ -18,6 +35,9 @@
       toast.style.padding = "10px 12px";
       toast.style.borderRadius = "10px";
       toast.style.fontSize = "13px";
+      toast.style.maxWidth = "420px";
+      toast.style.lineHeight = "1.5";
+      toast.style.whiteSpace = "pre-wrap";
       toast.style.opacity = "0";
       toast.style.transition = "opacity .2s ease";
       document.documentElement.appendChild(toast);
@@ -27,7 +47,7 @@
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => {
       toast.style.opacity = "0";
-    }, 1200);
+    }, ms || 1200);
   }
 
   function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -66,6 +86,75 @@
   }
 
   // =============================
+  // 反映結果の記録
+  //
+  // 「入らなかった」を “欄が無い / 既存値がある / 入れたが戻された” まで
+  // 切り分けて残す。真偽値ひとつに潰すと原因が追えなくなるため。
+  // =============================
+  let report = [];   // [{ field, status, detail }]
+  let writes = [];   // [{ field, isOk(), retry() }] 書き込み後の検証用
+
+  const R = {
+    done:    (detail) => ({ ok: true,  status: "入力",               detail: detail || "" }),
+    noValue: ()       => ({ ok: false, status: "skip:値なし",         detail: "" }),
+    filled:  (cur)    => ({ ok: false, status: "skip:既存値あり",     detail: `現在値="${cur}"` }),
+    noField: ()       => ({ ok: false, status: "NG:欄が見つからない", detail: "" }),
+    fail:    (why)    => ({ ok: false, status: "NG:" + why,           detail: "" }),
+  };
+
+  function elDesc(el){
+    if (!el) return "null";
+    return `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}`;
+  }
+
+  // 書き込んだ直後は成功に見えても、CMS側の初期化や再レンダリングで
+  // 後から消されることがある。あとでまとめて確認するために積んでおく。
+  //
+  // ★ describe は必須。「戻された」とだけ報告しても原因が追えず、
+  //   実際に “検証側の誤判定” と “本当に消された” の区別が付かなかった。
+  function watch(field, isOk, retry, describe){
+    writes.push({ field, isOk, retry, describe });
+  }
+
+  // <input type="text"> は HTML の value sanitization で CR/LF を落とす。
+  // 期待値もそれに合わせないと、改行を含む値で必ず「戻された」と誤判定する
+  // （タイトル・管理名称はツール側の textarea 由来なので改行が入りうる）。
+  function expectedIn(el, value){
+    const v = (value ?? "").toString();
+    return (el && el.tagName === "TEXTAREA") ? v : v.replace(/[\r\n]+/g, "");
+  }
+
+  function watchValue(field, el, want){
+    const expect = expectedIn(el, want);
+    watch(field,
+      () => (el.value ?? "").toString() === expect,
+      () => setNativeValue(el, want),
+      () => `期待="${expect}" 実際="${(el.value ?? "").toString()}"`);
+  }
+
+  async function verifyWrites(){
+    if (!writes.length) return [];
+    await wait(700);
+    const reverted = [];
+    for (const w of writes){
+      let ok = false;
+      try { ok = !!w.isOk(); } catch (e) { ok = false; }
+      if (ok) continue;
+
+      try { w.retry(); } catch (e) { /* 入れ直しは best effort */ }
+      await wait(350);
+
+      try { ok = !!w.isOk(); } catch (e) { ok = false; }
+      if (ok) continue;
+
+      let detail = "";
+      try { detail = w.describe ? w.describe() : ""; } catch (e) { detail = "(検証値を取得できず)"; }
+      reverted.push({ field: w.field, detail });
+    }
+    return reverted;
+  }
+
+  // =============================
   // label起点の探索
   // =============================
   function findLabelElementStrict(labelText){
@@ -99,16 +188,36 @@
   }
 
   // =============================
+  // TextInput（空欄のみ埋める）
+  // =============================
+  function setTextByLabel(field, labelText, value, strict){
+    const v = (value ?? "").toString();
+    if (!v.trim()) return R.noValue();
+
+    const input = strict
+      ? (findInputByLabelTextStrict(labelText) || findInputByLabelText(labelText))
+      : findInputByLabelText(labelText);
+    if (!input) return R.noField();
+
+    const cur = (input.value ?? "").toString();
+    if (cur.trim()) return R.filled(cur);
+
+    setNativeValue(input, v);
+    watchValue(field, input, v);
+    return R.done(elDesc(input));
+  }
+
+  // =============================
   // Mantine Select
   // =============================
-  async function setMantineSelectByLabel(labelText, valueText){
+  async function setMantineSelectByLabel(field, labelText, valueText){
     const input = findInputByLabelText(labelText);
-    if (!input) return false;
+    if (!input) return R.noField();
 
     const want = normText(valueText);
-    if (!want) return false;
+    if (!want) return R.noValue();
 
-    if (normText(input.value) === want) return true;
+    if (normText(input.value) === want) return R.filled(input.value);
 
     input.click();
     await wait(80);
@@ -120,31 +229,42 @@
       options.find(o => normText(o.textContent).includes(want)) ||
       null;
 
-    if (!opt) return false;
+    if (!opt) return R.fail(`選択肢「${want}」が無い`);
     opt.click();
     await wait(60);
-    return true;
+
+    // 選択肢の再クリックは副作用が読めないので retry はしない（意図的）
+    watch(field,
+      () => normText(input.value) === want,
+      () => {},
+      () => `期待="${want}" 実際="${normText(input.value)}"`);
+    return R.done(`${elDesc(input)} → ${want}`);
   }
 
-  async function setMantineSelectByLabelStrict(labelText, valueText){
+  async function setMantineSelectByLabelStrict(field, labelText, valueText){
     const input = findInputByLabelTextStrict(labelText);
-    if (!input) return false;
+    if (!input) return R.noField();
 
     const want = normText(valueText);
-    if (!want) return false;
+    if (!want) return R.noValue();
 
-    if (normText(input.value) === want) return true;
+    if (normText(input.value) === want) return R.filled(input.value);
 
     input.click();
     await wait(80);
 
     const options = $$('[role="option"]', document.body);
     const opt = options.find(o => normText(o.textContent) === want) || null;
-    if (!opt) return false;
+    if (!opt) return R.fail(`選択肢「${want}」が無い`);
 
     opt.click();
     await wait(60);
-    return true;
+
+    watch(field,
+      () => normText(input.value) === want,
+      () => {},
+      () => `期待="${want}" 実際="${normText(input.value)}"`);
+    return R.done(`${elDesc(input)} → ${want}`);
   }
 
   // =============================
@@ -186,46 +306,70 @@
     return true;
   }
 
+  function setRichTextByLabel(field, labelText, text){
+    const v = (text ?? "").toString();
+    if (!v.trim()) return R.noValue();
+
+    const prose = findRichEditorByLabel(labelText);
+    if (!prose) return R.noField();
+    if (!richEditorIsEmpty(prose)) return R.filled(normText(prose.textContent).slice(0, 20) + "…");
+
+    if (!setRichText(prose, v)) return R.fail("書き込めなかった");
+
+    watch(field,
+      () => !richEditorIsEmpty(prose),
+      () => setRichText(prose, v),
+      () => `期待=空でないこと 実際="${normText(prose.textContent).slice(0, 40)}"`);
+    return R.done();
+  }
+
   // =============================
   // NumberInput（type=text）
   // =============================
-  function setNumberInputByLabel(labelText, valueText, allowOverwriteIfCurrentIn = []){
+  function setNumberInputByLabel(field, labelText, valueText, allowOverwriteIfCurrentIn = []){
+    const want = (valueText ?? "").toString();
+    if (!want.trim()) return R.noValue();
+
     const input = findInputByLabelText(labelText);
-    if (!input) return false;
+    if (!input) return R.noField();
 
     const cur = (input.value ?? "").toString();
-    const want = (valueText ?? "").toString();
-    if (!want.trim()) return false;
 
     if (allowOverwriteIfCurrentIn.length > 0){
-      if (!allowOverwriteIfCurrentIn.includes(cur)) return false;
+      if (!allowOverwriteIfCurrentIn.includes(cur)) return R.filled(cur);
     } else {
-      if (cur && cur.trim()) return false;
+      if (cur && cur.trim()) return R.filled(cur);
     }
 
-    return setNativeValue(input, want);
+    setNativeValue(input, want);
+    watchValue(field, input, want);
+    return R.done(`${elDesc(input)} "${cur || "(空)"}" → "${want}"`);
   }
 
   // =============================
   // Switch（role="switch"）
   // =============================
-  function setSwitchByLabel(labelText, enabled){
+  function setSwitchByLabel(field, labelText, enabled){
     const labels = $$("label");
     const lb = labels.find(l => (l.textContent || "").trim().startsWith(labelText));
-    if (!lb) return false;
+    if (!lb) return R.noField();
 
     const stack = lb.closest(".mantine-Stack-root") || lb.parentElement;
-    if (!stack) return false;
+    if (!stack) return R.noField();
 
     const sw = stack.querySelector("input[type='checkbox'][role='switch']");
-    if (!sw) return false;
+    if (!sw) return R.noField();
 
     const want = !!enabled;
     const cur = !!sw.checked;
-    if (cur === want) return true;
+    if (cur === want) return R.filled(cur ? "ON" : "OFF");
 
     sw.click();
-    return true;
+    watch(field,
+      () => !!sw.checked === want,
+      () => { if (!!sw.checked !== want) sw.click(); },
+      () => `期待=${want ? "ON" : "OFF"} 実際=${sw.checked ? "ON" : "OFF"}`);
+    return R.done(want ? "OFF → ON" : "ON → OFF");
   }
 
   // =============================
@@ -249,9 +393,29 @@
     return { y, mo, d, hh, mm, hhmm: `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}` };
   }
 
+  function anyPopoverOpen(){
+    return !!document.querySelector('.mantine-Popover-dropdown[role="dialog"]');
+  }
+
   function closeAllPopovers(){
-    // ESCで閉じられることが多い
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    // 閉じるものが無いなら何もしない。
+    // CMSへ合成イベントを送るのは相手のハンドラを踏む行為なので、必要な時だけにする。
+    if (!anyPopoverOpen()) return;
+
+    // ESCで閉じられることが多い。
+    // ★ document から dispatch しないこと。event.target が document になり、
+    //    CMS が document に直付けしている keydown ハンドラ内の
+    //    `t?.hasAttribute(...)` が "hasAttribute is not a function" で落ちる
+    //    （`?.` は null/undefined しか防げず、関数でない場合は素通りする）。
+    //    Element から投げれば bubbles で document まで届くので効果は同じ。
+    const from =
+      (document.activeElement instanceof Element ? document.activeElement : null) ||
+      document.body ||
+      document.documentElement;
+    from?.dispatchEvent?.(new KeyboardEvent("keydown", {
+      key: "Escape", code: "Escape", keyCode: 27, which: 27,
+      bubbles: true, cancelable: true
+    }));
     // クリックアウトも効くことが多い
     document.body?.click?.();
   }
@@ -369,7 +533,8 @@
 
   async function setDateTimeByTarget(targetBtn, text){
     const dt = parseYmdHm(text);
-    if (!targetBtn || !dt) return false;
+    if (!targetBtn) return "欄が見つからない";
+    if (!dt) return `日時の書式が想定外："${text}"`;
 
     closeAllPopovers();
     await wait(60);
@@ -384,14 +549,14 @@
       ? await waitFor(() => document.getElementById(ddId), 3000, 60)
       : await waitFor(() => document.querySelector('.mantine-Popover-dropdown[role="dialog"]'), 3000, 60);
 
-    if (!dd) return false;
+    if (!dd) return "カレンダーが開かなかった";
 
     // 月移動
     await moveToMonth(dd, dt.y, dt.mo);
 
     // 日付クリック
     const dayBtn = findDayButton(dd, dt.y, dt.mo, dt.d);
-    if (!dayBtn) return false;
+    if (!dayBtn) return `${dt.y}/${dt.mo}/${dt.d} のボタンが見つからない`;
     dayBtn.click();
     await wait(80);
 
@@ -408,7 +573,7 @@
 
     // ✅確定
     const submit = findSubmitButton(dd);
-    if (!submit) return false;
+    if (!submit) return "確定ボタンが見つからない";
     submit.click();
 
     // 閉じるまで待つ（重なり防止）
@@ -420,7 +585,7 @@
       await waitFor(() => !document.querySelector('.mantine-Popover-dropdown[role="dialog"]'), 2500, 60);
     }
 
-    return true;
+    return null; // = 成功
   }
 
   function isPlaceholderBtn(btn){
@@ -430,12 +595,12 @@
     return !t || t === "開始日時" || t === "終了日時";
   }
 
-  async function setMantineDateRangeByLabel(labelText, startText, endText){
+  async function setMantineDateRangeByLabel(field, labelText, startText, endText){
     const lb = findLabelElementStrict(labelText);
-    if (!lb) return false;
+    if (!lb) return R.noField();
 
     const stack = lb.closest(".mantine-Stack-root") || lb.parentElement;
-    if (!stack) return false;
+    if (!stack) return R.noField();
 
     // 開始ボタン：DateTimePicker-input を優先（data-dates-input=true も多い）
     const startBtn =
@@ -449,136 +614,168 @@
       stack.querySelector('button[id$="-target"][name="end"]') ||
       null;
 
+    const notes = [];
     let changed = false;
+    let skippedFilled = 0;
+    let wantCount = 0;
 
     // 開始（空っぽ/プレースホルダなら入れる）
-    if (startText && startBtn && isPlaceholderBtn(startBtn)){
-      const ok = await setDateTimeByTarget(startBtn, startText);
-      if (ok) changed = true;
-      await wait(120);
+    if (startText){
+      wantCount++;
+      if (!startBtn){
+        notes.push("開始:欄が見つからない");
+      } else if (!isPlaceholderBtn(startBtn)){
+        skippedFilled++;
+      } else {
+        const err = await setDateTimeByTarget(startBtn, startText);
+        if (err) notes.push(`開始:${err}`);
+        else {
+          changed = true;
+          watch(`${field}(開始)`,
+            () => !isPlaceholderBtn(startBtn),
+            () => {},
+            () => `期待="${startText}" 実際="${normText(startBtn.textContent)}"`);
+        }
+        await wait(120);
+      }
     }
 
     // 終了（空っぽ/プレースホルダなら入れる）
-    if (endText && endBtn && isPlaceholderBtn(endBtn)){
-      const ok = await setDateTimeByTarget(endBtn, endText);
-      if (ok) changed = true;
-      await wait(120);
+    if (endText){
+      wantCount++;
+      if (!endBtn){
+        notes.push("終了:欄が見つからない");
+      } else if (!isPlaceholderBtn(endBtn)){
+        skippedFilled++;
+      } else {
+        const err = await setDateTimeByTarget(endBtn, endText);
+        if (err) notes.push(`終了:${err}`);
+        else {
+          changed = true;
+          watch(`${field}(終了)`,
+            () => !isPlaceholderBtn(endBtn),
+            () => {},
+            () => `期待="${endText}" 実際="${normText(endBtn.textContent)}"`);
+        }
+        await wait(120);
+      }
     }
 
-    return changed;
+    if (!wantCount) return R.noValue();
+    if (notes.length) return { ok: changed, status: "NG:" + notes.join(" / "), detail: "" };
+    if (changed) return R.done();
+    if (skippedFilled) return R.filled("設定済み");
+    return R.noValue();
   }
 
   // =============================
   // Main
   // =============================
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const handleMessage = (msg, sender, sendResponse) => {
     (async () => {
       try {
         if (!msg || msg.type !== MSG_TYPE) return;
 
         const p = msg.payload || {};
+        report = [];
+        writes = [];
         let changed = false;
 
-        // タイトル/管理名称（空欄のみ）
-        const titleEl = findInputByLabelText("タイトル");
-        if (titleEl && !titleEl.value && p.title){
-          setNativeValue(titleEl, p.title);
-          changed = true;
-        }
+        const apply = (field, res) => {
+          if (!res) return;
+          if (res.ok) changed = true;
+          report.push({ 項目: field, 結果: res.status, 詳細: res.detail || "" });
+        };
 
-        const adminEl = findInputByLabelText("管理名称");
-        if (adminEl && !adminEl.value && p.adminName){
-          setNativeValue(adminEl, p.adminName);
-          changed = true;
-        }
+        // タイトル/管理名称（空欄のみ）
+        apply("タイトル", setTextByLabel("タイトル", "タイトル", p.title, false));
+        apply("管理名称", setTextByLabel("管理名称", "管理名称", p.adminName, false));
 
         // 表示グループ / カテゴリ（select）
-        if (p.displayGroup){
-          const ok = await setMantineSelectByLabel("表示グループ", p.displayGroup);
-          if (ok) changed = true;
-        }
-        if (p.category){
-          const ok = await setMantineSelectByLabel("カテゴリ", p.category);
-          if (ok) changed = true;
-        }
+        apply("表示グループ", await setMantineSelectByLabel("表示グループ", "表示グループ", p.displayGroup));
+        apply("カテゴリ",     await setMantineSelectByLabel("カテゴリ", "カテゴリ", p.category));
 
         // 配布方法（select）
-        if (p.distributionMethod){
-          const ok = await setMantineSelectByLabelStrict("配布方法", p.distributionMethod);
-          if (ok) changed = true;
-        }
+        apply("配布方法", await setMantineSelectByLabelStrict("配布方法", "配布方法", p.distributionMethod));
 
         // 日時（公開期間 / 利用可能期間）
         // p.publishStart / p.publishEnd / p.usableStart / p.usableEnd
-        if (p.publishStart || p.publishEnd){
-          const ok = await setMantineDateRangeByLabel("公開期間", p.publishStart, p.publishEnd);
-          if (ok) changed = true;
-        }
-        if (p.usableStart || p.usableEnd){
-          const ok = await setMantineDateRangeByLabel("利用可能期間", p.usableStart, p.usableEnd);
-          if (ok) changed = true;
-        }
+        apply("公開期間",     await setMantineDateRangeByLabel("公開期間", "公開期間", p.publishStart, p.publishEnd));
+        apply("利用可能期間", await setMantineDateRangeByLabel("利用可能期間", "利用可能期間", p.usableStart, p.usableEnd));
 
         // ★重要：ブランド入居フロア / ブランド名（TextInputなので “直接入力”）
-        if (p.brandFloor){
-          const bf = findInputByLabelTextStrict("ブランド入居フロア") || findInputByLabelText("ブランド入居フロア");
-          if (bf && !(bf.value || "").toString().trim()){
-            setNativeValue(bf, p.brandFloor);
-            changed = true;
-          }
-        }
-        if (p.brandName){
-          const bn = findInputByLabelTextStrict("ブランド名") || findInputByLabelText("ブランド名");
-          if (bn && !(bn.value || "").toString().trim()){
-            setNativeValue(bn, p.brandName);
-            changed = true;
-          }
-        }
+        apply("ブランド入居フロア", setTextByLabel("ブランド入居フロア", "ブランド入居フロア", p.brandFloor, true));
+        apply("ブランド名",         setTextByLabel("ブランド名", "ブランド名", p.brandName, true));
 
         // ご利用条件 / 注意事項（RichText：空なら入れる）
-        if (p.terms){
-          const prose = findRichEditorByLabel("ご利用条件");
-          if (prose && richEditorIsEmpty(prose)){
-            if (setRichText(prose, p.terms)) changed = true;
-          }
-        }
-        if (p.notes){
-          const prose = findRichEditorByLabel("注意事項");
-          if (prose && richEditorIsEmpty(prose)){
-            if (setRichText(prose, p.notes)) changed = true;
-          }
-        }
+        apply("ご利用条件", setRichTextByLabel("ご利用条件", "ご利用条件", p.terms));
+        apply("注意事項",   setRichTextByLabel("注意事項", "注意事項", p.notes));
 
         // 並べ替え優先度（CMS側が"0"の時のみ上書き）
-        if (p.sortPriority){
-          if (setNumberInputByLabel("並べ替え優先度", p.sortPriority, ["", "0"])) changed = true;
-        }
+        apply("並べ替え優先度", setNumberInputByLabel("並べ替え優先度", "並べ替え優先度", p.sortPriority, ["", "0"]));
 
         // 会員ひとりが利用可能な回数（基本空 or 初期値なら入れる）
-        if (p.perUser){
-          if (setNumberInputByLabel("会員ひとりが利用可能な回数", p.perUser, ["", "1"])) changed = true;
-        }
+        apply("会員ひとりが利用可能な回数",
+          setNumberInputByLabel("会員ひとりが利用可能な回数", "会員ひとりが利用可能な回数", p.perUser, ["", "1"]));
 
         // 全体の利用回数制限（switch）
         if (typeof p.totalLimitEnabled === "boolean"){
-          if (setSwitchByLabel("全体の利用回数制限", p.totalLimitEnabled)) changed = true;
+          apply("全体の利用回数制限", setSwitchByLabel("全体の利用回数制限", "全体の利用回数制限", p.totalLimitEnabled));
           await wait(120);
         }
 
         // 全体で利用可能な回数（“あり”の時に出現）
-        if (p.totalLimitEnabled && p.totalCount){
-          if (setNumberInputByLabel("全体で利用可能な回数", p.totalCount, ["", "1"])) changed = true;
+        if (p.totalLimitEnabled){
+          apply("全体で利用可能な回数",
+            setNumberInputByLabel("全体で利用可能な回数", "全体で利用可能な回数", p.totalCount, ["", "1"]));
         }
 
-        if (changed) showToast("入力しました");
+        // 書き込んだ値が生き残っているか確認し、消えていたら1回だけ入れ直す
+        const reverted = await verifyWrites();
+        reverted.forEach(({ field, detail }) => {
+          const row = report.find(r => r.項目 === field)
+                   || report.find(r => field.startsWith(r.項目));
+          if (row){
+            row.結果 = "NG:入れたが戻された";
+            row.詳細 = detail;
+          } else {
+            report.push({ 項目: field, 結果: "NG:入れたが戻された", 詳細: detail });
+          }
+        });
 
-        sendResponse({ ok: true, changed });
+        const ng = report.filter(r => String(r.結果).startsWith("NG"));
+
+        console.log("%c[toCMS] 反映結果", "font-weight:bold");
+        console.table(report);
+        if (ng.length) console.warn("[toCMS] 未反映:", ng);
+
+        if (ng.length){
+          showToast(
+            `未反映 ${ng.length}件\n` + ng.map(r => `・${r.項目}（${r.結果.replace(/^NG:/, "")}）`).join("\n") +
+            "\n\n詳細はコンソール（F12）",
+            9000
+          );
+        } else if (changed){
+          showToast("入力しました");
+        } else {
+          showToast("入力できる空欄がありませんでした", 4000);
+        }
+
+        sendResponse({ ok: true, changed, report });
       } catch (e) {
         console.warn("[cms_inject]", e);
-        sendResponse({ ok: false, error: String(e?.message || e) });
+        showToast("エラー: " + String(e?.message || e), 9000);
+        sendResponse({ ok: false, error: String(e?.message || e), report });
       }
     })();
 
     return true;
-  });
+  };
+
+  chrome.runtime.onMessage.addListener(handleMessage);
+
+  // 次に注入されたインスタンスから呼ばれる。これを置いておかないと二重登録になる。
+  window.__YK_CMS_INJECT_DISPOSE__ = () => {
+    chrome.runtime.onMessage.removeListener(handleMessage);
+  };
 })();

@@ -10,7 +10,7 @@ GitHub Pages 上のフォームで入力・整形し、Chrome拡張経由でCMS�
 | コンポーネント | バージョン | 更新日 |
 |---|---|---|
 | index.html（ツール本体） | v1.4.0 | 2026-07-31 |
-| Chrome拡張（YokoAppCoupon to CMS） | v1.1.6 | — |
+| Chrome拡張（YokoAppCoupon to CMS） | v1.2.2 | 2026-08-21 |
 
 ---
 
@@ -24,6 +24,13 @@ YokoAppCoupon/
 │   ├── koma_inject.js             … GitHub Pages側 Content Script
 │   ├── background.js              … Service Worker（メッセージ中継）
 │   └── cms_inject.js              … CMS側 Content Script
+├── tests/                         … 自動テストと診断スクリプト
+│   ├── run.ps1                    … 日時パースの回帰テスト
+│   ├── datetime-corpus.js         … 日時のテストケース
+│   ├── cms-run.ps1                … cms_inject.js の反映テスト
+│   ├── cms-harness.html           … 上記が使うMantineモックフォーム
+│   ├── cms-probe.js               … CMS実画面用の診断（コンソール貼り付け）
+│   └── cms-probe-numberinput.js   … 同上（NumberInput特化）
 ├── YokoAppCoupon流し込みツール.url  … GitHub Pagesショートカット
 ├── .gitattributes                 … 改行コード自動正規化
 ├── .gitignore                     … 「Ignored files」フォルダを除外
@@ -350,6 +357,45 @@ Excelで複数セルを選択してコピーし、**任意の入力欄にペー�
 
 **注意:** ツール側の表記は「並び替え優先度」、CMS側のラベルは「並べ替え優先度」。
 
+### 反映結果レポート（拡張 v1.2.0〜）
+
+toCMS の結果を項目ごとに残す。以前は成否を真偽値ひとつに潰していたため、
+入らなかったときに「欄が無い」のか「既存値があるので飛ばした」のか「入れたが消された」のかが
+区別できなかった。
+
+| 結果 | 意味 | 対処 |
+|---|---|---|
+| `入力` | 実際に書き込んだ | — |
+| `skip:値なし` | ツール側が空だった | ツール側に値を入れて変換し直す |
+| `skip:既存値あり` | CMS側に既に値があるので触っていない（**正常**） | 上書きしたいなら手でCMS側を空にする |
+| `NG:欄が見つからない` | ラベルからCMSの入力欄を辿れなかった | CMSのUI変更を疑う。`tests/cms-probe.js` で調査 |
+| `NG:選択肢「◯◯」が無い` | Selectに該当する選択肢が無い | ツール側の選択肢とCMS側の選択肢がズレている |
+| `NG:入れたが戻された` | 書き込み後にCMS側が値を消した | 1回自動で入れ直した上でなお消えた場合に出る |
+| `NG:カレンダーが開かなかった` 等 | 日時ピッカーの操作に失敗 | 日時のどの段階で落ちたかが文言に出る |
+
+- **未反映が1件でもあれば、CMS画面右下のトーストに項目名と理由を9秒間表示する。**
+  すべて成功した場合のみ従来どおり「入力しました」。
+- 全項目の内訳は CMSタブのコンソール（F12）に `[toCMS] 反映結果` として `console.table` で出る。
+- `NG:入れたが戻された` には**必ず期待値と実際値を添える**（`期待="…" 実際="…"`）。
+  これが無いと「本当に消された」のか「検証側の誤判定」なのかが区別できない。
+- 書き込み後は 0.7 秒待って値が残っているか確認し、消えていれば**1回だけ自動で入れ直す**。
+  CMS側のフォーム初期化が後から走って値を消すケースの保険。
+
+**検証時の注意（v1.2.1 で修正）:** `<input type="text">` は HTML の value sanitization で
+CR/LF を落とす。タイトル・管理名称はツール側の `textarea`（`.output-title` 等）由来で
+改行が混ざりうるため、期待値をそのまま比較すると必ず「戻された」と誤判定する。
+`expectedIn()` で期待値側からも改行を落として比較している。
+
+### CMSへ合成イベントを送るときの注意
+
+1. `closeAllPopovers()` の keydown は **`document` から dispatch してはいけない**。
+   `event.target` が `document` になり、CMSが `document` に直付けしているハンドラ内の
+   `t?.hasAttribute(...)` が `hasAttribute is not a function` で落ちる
+   （`?.` は null/undefined しか防げず、関数でない場合は素通りする）。
+   Element から投げれば bubbles で `document` まで届くので効果は同じ。
+2. そもそも**開いているポップオーバーが無いときは何も送らない**（`anyPopoverOpen()` でガード）。
+   合成イベントを送ることは相手のハンドラを踏む行為なので、必要な時だけにする。
+
 ---
 
 ## クリア動作
@@ -385,6 +431,18 @@ Excelで複数セルを選択してコピーし、**任意の入力欄にペー�
 - CMSタブ探索: `/store-coupons*` パターンでタブ検索
 - タブ選択: アクティブタブ優先、なければ先頭タブ
 - Content Script未ロード時: `cms_inject.js` を動的注入してリトライ
+- この救済パスがあるため、`cms_inject.js` は**再注入されうる前提**で書く必要がある（下記）
+
+### 二重注入の防止（v1.2.2〜）
+
+`cms_inject.js` は読み込み時に `window.__YK_CMS_INJECT_DISPOSE__?.()` で
+**前のインスタンスの listener を解除してから**自分を登録する。
+
+これをやらないと、`background.js` の救済注入でリスナーが積み上がり、
+**toCMS 1回で処理が2回走って日時ピッカーの同じポップオーバーを奪い合う**（実機で発生）。
+
+単純な「読み込み済みフラグ」では不可。拡張だけ再読み込みするとフラグはページに残ったまま
+古いインスタンスだけが無効化されるので、新しい方が登録をスキップして救済パスごと死ぬ。
 
 ### koma_inject.js（GitHub Pages側）
 
@@ -402,3 +460,25 @@ Excelで複数セルを選択してコピーし、**任意の入力欄にペー�
   - **NumberInput**: `type="text"` + `inputmode="numeric"` のネイティブsetter
   - **Switch**: `input[type="checkbox"][role="switch"]` のclick
 - 既存値がある場合は上書きしない（フィールドごとに条件が異なる）
+- 反映結果を項目ごとに記録し、未反映があればトーストとコンソールに出す（上記「反映結果レポート」）
+
+---
+
+## テスト
+
+```powershell
+.\tests\run.ps1        # 日時パースの回帰テスト（80件＋e2e）
+.\tests\cms-run.ps1    # cms_inject.js の反映テスト（要ネットワーク）
+```
+
+どちらも `index.html` / `cms_inject.js` を**そのまま**ヘッドレスChrome（無ければEdge）に読ませ、
+`--dump-dom` で結果を回収する。全通過で終了コード0。
+
+`cms-run.ps1` は esm.sh から本物の React + Mantine を取ってきてCMSのフォームを模したものを組み、
+`chrome.runtime` をスタブして `YK_COUPON_TO_CMS` を1発流す。
+日時ピッカーはモックに置いていないため、公開期間／利用可能期間が
+`NG:欄が見つからない` になるのが正しい状態（エラー報告が機能していることの確認を兼ねる）。
+
+CMSの実画面が怪しいときは、`tests/cms-probe.js` をCMSタブのコンソールに貼り付けると、
+`cms_inject.js` と同じ探索ロジックでどのフィールドがどこで外れているかを一覧で出せる。
+ページは読むだけで変更しない。

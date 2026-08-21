@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YokoAppCoupon to CMS",
-  "version": "1.1.6",
+  "version": "1.2.2",
   "description": "YokoAppCoupon（GitHub Pages）から、別タブのCMSへ自動入力します。",
   "permissions": ["tabs", "scripting", "activeTab"],
   "host_permissions": [

@@ -16,15 +16,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - デプロイ … `main` へ push すると GitHub Pages（https://r-tkbyc.github.io/YokoAppCoupon/）へ自動反映
 - 拡張 … `chrome://extensions` で `YokoAppCoupon to CMS/` を「パッケージ化されていない拡張機能を読み込む」
 
-**日時パースだけ自動テストがある。** 日時に触ったら必ず流すこと。
+**自動テストが2つある。** 触った側は必ず流すこと。
 
 ```powershell
-.\tests\run.ps1     # 全通過で終了コード0
+.\tests\run.ps1        # 日時パース（index.html を触ったら）
+.\tests\cms-run.ps1    # CMS反映（cms_inject.js を触ったら／要ネットワーク）
 ```
 
-`index.html` にテストスクリプトを差し込んだ一時HTMLを作り、ヘッドレスChrome（無ければEdge）の `--dump-dom` で結果を回収する仕組み。新しい日時の書き方を見つけたら `tests/datetime-corpus.js` の `CORPUS` に1行足す。
+どちらも「対象ファイルを**そのまま**ヘッドレスChrome（無ければEdge）に読ませ、`--dump-dom` して `<pre id="testout">` から結果を回収する」という同じ仕組み。全通過で終了コード0。
 
-それ以外（CMS連携・一括ペーストなど）は**実機での手動テスト**が前提。同じヘッドレスChrome方式で使い捨ての検証ハーネスを組むと確認が早い（`_harness.html` を作って `--dump-dom` → 結果を `<pre>` から取り出す）。
+- `run.ps1` … `index.html` にテストスクリプトを差し込んだ一時HTMLを作る。新しい日時の書き方を見つけたら `tests/datetime-corpus.js` の `CORPUS` に1行足す。
+- `cms-run.ps1` … `tests/cms-harness.html` が esm.sh から**本物の React + Mantine** を取ってきてCMSのフォームを模したものを組み、`chrome.runtime` をスタブして `cms_inject.js` を classic script として読ませ、`YK_COUPON_TO_CMS` を1発流す。`report` と画面の実値の両方を検証する。
+  - 日時ピッカーはモックに置いていないので、公開期間／利用可能期間が `NG:欄が見つからない` になるのが**正しい**。
+  - CMSのラベル文言やMantineのDOM構造の変化そのものは検出できない（モックなので）。そこは実機で `tests/cms-probe.js` を使う。
+
+一括ペーストなど、上記でカバーしていないものは**実機での手動テスト**が前提。同じヘッドレスChrome方式で使い捨ての検証ハーネスを組むと確認が早い（`_harness.html` を作って `--dump-dom` → 結果を `<pre>` から取り出す。`_` 始まりは一時ファイルの慣習）。
+
+esm.sh から本物のライブラリを引っぱってこられるのは分かっているので、「Mantineの挙動が原因では？」という仮説は**推測で潰さず再現ハーネスで潰す**こと。実際 v1.2.0 の調査では「react-number-format が `setNativeValue` を弾いている」という筋の良さそうな仮説が、再現したら**あっさり通って外れた**。
+
+### CMS実画面の調査
+
+CMS側のDOM変更を疑うときは、CMSタブのコンソールに貼り付ける診断スクリプトがある。ページは読むだけで変更しない。
+
+- `tests/cms-probe.js` … 全フィールドについて、`cms_inject.js` と同じ探索ロジックでどこまで辿れるかを一覧化。ページ上の全 `<label>` と `mantine-*` クラス名も吐くので、ラベル文言の変更やMantineのバージョンアップを検出できる
+- `tests/cms-probe-numberinput.js` … NumberInput特化。注入直後／0.3秒後／1.5秒後／3.5秒後の値を記録するので、**CMS側が後から値を戻しているか**が分かる
+
+⚠️ 診断スクリプトは最後に自分で値を元に戻す。ユーザーに結果を読んでもらうときは、**その後始末の分を「CMSが戻した」と誤読させない**よう明示すること（実際にそう誤解された）。
 
 ⚠️ **`.ps1` は UTF-8 BOM付きで保存すること。** Windows PowerShell 5.1 は BOM が無いと ANSI として読むため、日本語コメントが文字化けしてパースエラーになる。Write ツールは BOM 無しで書くので、書いた後に付け直しが必要。
 
@@ -49,6 +66,10 @@ index.html            koma_inject.js          background.js           cms_inject
 全ホップが `MSG_TYPE = "YK_COUPON_TO_CMS"` という同一定数を**各ファイルで独立に再定義**している。変更する場合は3ファイル同時に。
 
 `background.js` はサービスワーカーなので、送信先タブに content script が載っていない場合（`"Receiving end does not exist"`）は `chrome.scripting.executeScript` で `cms_inject.js` を動的注入してリトライする。この救済パスがあるため、CMSタブの再読み込みを忘れても動くことがある——が、確実ではない。
+
+**この救済パスがあるので `cms_inject.js` は「再注入されうる」前提で書くこと。** 冒頭で `window.__YK_CMS_INJECT_DISPOSE__?.()` を呼び、前のインスタンスの listener を解除してから自分を登録している。これが無いとリスナーが積み上がり、toCMS 1回で処理が2回走って日時ピッカーの同じポップオーバーを奪い合う（実機で発生）。
+
+単純な「読み込み済みフラグ」で早期 return するのは**間違い**。拡張だけ再読み込みするとフラグはページに残ったまま古いインスタンスだけが無効化されるので、新しい方が登録をスキップして救済パスごと死ぬ。`tests/cms-run.ps1` が二重読み込み後の listener 数を検証している。
 
 ### 「出力欄が契約」パターン
 
@@ -90,7 +111,33 @@ v1.4.0 以前は `parseDateTimeLoose()` が内部で `transform()` を呼んで�
 
 `findLabelElementIncludes` は部分一致で**最初にヒットしたラベル**を返すため、CMS に似た名前のフィールドが増えると誤爆する。誤爆しやすいものには `...Strict`（`startsWith` / 完全一致）版を使っている。
 
-### 4. バージョン番号は5箇所
+### 4. CMSへ合成イベントを送るときは Element から dispatch する
+
+`closeAllPopovers()` の keydown を `document.dispatchEvent()` で投げると `event.target` が `document` になる。CMS は `document` 直付けのハンドラで `t?.hasAttribute(...)` を呼んでおり、`document` に `hasAttribute` は無いので **CMS 側が `hasAttribute is not a function` で落ちる**（`?.` は null/undefined しか防げず、関数でない場合は素通りする）。
+
+Element から投げれば bubbles で `document` まで届くので効果は同じ。同じ理屈で、**CMSへ合成イベントを送るときは常に `event.target` が Element になるようにする**こと。
+
+加えて `anyPopoverOpen()` でガードしてある。合成イベントを送るのは相手のハンドラを踏む行為なので、閉じるものが無いときは何も送らない。
+
+### 5. 反映結果は真偽値に潰さない
+
+`cms_inject.js` の各セッターは `{ ok, status, detail }` を返し、`report[]` に積まれる。`status` は `入力` / `skip:値なし` / `skip:既存値あり` / `NG:…` を区別する。
+
+以前は `changed` という真偽値ひとつだったため、「入らなかった」と報告されても**欄が無いのか・既存値があって意図的に飛ばしたのか・入れたのに消されたのかが切り分けられなかった**。実際それで原因特定に何往復もかかった。セッターを増やすときも必ず `R.*` を返し、`apply()` 経由で記録すること。
+
+`verifyWrites()` は書き込み後 0.7 秒待って値が残っているか確認し、消えていれば `watch()` に登録された `retry` を**1回だけ**実行する。Select は再クリックの副作用が読めないため retry を空にしてある（意図的）。
+
+`watch()` の第4引数 `describe` は**必須のつもりで書くこと**。`NG:入れたが戻された` とだけ出しても原因が追えない。実際 v1.2.0 では、詳細が無かったせいで「CMSが値を消した」のか「検証側の誤判定」なのかが判断できなかった。
+
+### 6. 期待値の比較は `<input>` の value sanitization を織り込む
+
+`<input type="text">` は HTML の value sanitization で **CR/LF を落とす**。タイトル・管理名称はツール側の `textarea`（`.output-title` / `.output-admin`）から取っているため改行が混ざりうる。
+
+書き込んだ値と `input.value` を素朴に `===` すると、改行を含む値では**必ず**「入れたが戻された」と誤判定する（v1.2.0 の実機で発生）。`expectedIn(el, value)` で期待値側からも改行を落としてから比較すること。textarea 相手のときは落とさない。
+
+回帰テストは `tests/cms-harness.html` の payload で `title: 'テストタイトル\n'` としてカバーしてある。この末尾改行を消さないこと。
+
+### 7. バージョン番号は5箇所
 
 同期が必要：
 
@@ -102,7 +149,7 @@ v1.4.0 以前は `parseDateTimeLoose()` が内部で `transform()` を呼んで�
 | `manifest.json:4` | 拡張のバージョン（index.html とは独立に採番） |
 | `README.md` バージョン表 | 両方 |
 
-### 5. 入力欄を追加すると一括ペーストの順序が変わる
+### 8. 入力欄を追加すると一括ペーストの順序が変わる
 
 Excel複数セルの一括ペースト（index.html 末尾のIIFE）は、対象欄を**ハードコードせずDOM順に自動列挙**する。除外は `readonly`／`disabled`／select／`datetime-local`／非表示／`data-nopaste="1"`。挙動としては正しいが、**`index.html` に新しい入力欄を足すと、その位置に応じて流し込み順が黙って変わる**。欄を追加・並べ替えたら README の流し込み順テーブルも更新すること。
 
@@ -110,7 +157,7 @@ Excel複数セルの一括ペースト（index.html 末尾のIIFE）は、対象
 
 number欄には安全装置がある（`NUM_CELL_OK`）。数字・区切り・簡単な単位以外を含むセルは**入れずに空のまま警告**する。`1階 化粧品` から数字だけ拾って `先着人数=1` になる「もっともらしい誤り」を防ぐためのもので、緩めないこと。
 
-### 6. `host_permissions` / `matches` が本番URL固定
+### 9. `host_permissions` / `matches` が本番URL固定
 
 `manifest.json` は `https://r-tkbyc.github.io/YokoAppCoupon/*` と `https://front-admin.taspapp.takashimaya.co.jp/store-coupons*` のみを対象にしている。`index.html` をローカル（`file://` や localhost）で開いても **toCMSボタンは出ない**。拡張の挙動を試すにはデプロイするか、manifest の `matches` を一時的に書き換える必要がある。
 
