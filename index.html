@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.4.0 - 2026-07-31 -->
-  <meta name="app-version" content="v1.4.0">
+  <!-- Text Formatter v1.4.1 - 2026-08-21 -->
+  <meta name="app-version" content="v1.4.1">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -497,8 +497,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.4.0";
-  const APP_BUILD = "2026-07-31";
+  const APP_VERSION = "v1.4.1";
+  const APP_BUILD = "2026-08-21";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   // 日時設定：基準年の初期値（今年は2026）
@@ -1241,6 +1241,30 @@
     // 1) text/html のテーブルから読む（Excel/スプレッドシートの正攻法）
     //    セル内改行やタブを含んでいても境界が壊れない
     // -----------------------------
+    // セル内の“本物の改行”は <br> だけ（Excelは Alt+Enter をこれで出す）。
+    //
+    // ★ソース中の改行を文字として拾わないこと。
+    //   HTMLでは改行・タブ・連続スペースはただの空白1個に畳まれる。ところが Excel は
+    //   長いセルをソース側で勝手に折り返して出力するため、textContent をそのまま採ると
+    //   本文の無関係な位置に改行が入る（実際に報告された不具合）。
+    //
+    //     <td ...>［宮脇賣扇庵］扇子ケース
+    //       プレゼント</td>
+    //       → 誤 "［宮脇賣扇庵］扇子ケース\n  プレゼント"
+    //       → 正 "［宮脇賣扇庵］扇子ケース プレゼント"
+    //
+    //   1セルだけのコピーで症状が出なかったのは、その場合 text/plain の既定ペーストに
+    //   まかせていて、この経路を通らないため。
+    const CELL_BR = '\u0000';   // 本文には現れない番兵
+
+    function cellTextFromTd(td){
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('br').forEach(br => br.replaceWith(CELL_BR));
+      clone.querySelectorAll('p, div').forEach(el => el.append(CELL_BR));
+      const collapsed = (clone.textContent || '').replace(/[ \t\r\n\f]+/g, ' ');
+      return normalizeCell(collapsed.split(CELL_BR).map(s => s.trim()).join('\n'));
+    }
+
     function cellsFromHtml(html){
       if (!html || !/<t[dhr][\s>]/i.test(html)) return null;
 
@@ -1251,9 +1275,7 @@
       const out = [];
       for (const tr of rows){
         for (const td of Array.from(tr.querySelectorAll(':scope > td, :scope > th'))){
-          const clone = td.cloneNode(true);
-          clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-          out.push(normalizeCell(clone.textContent));
+          out.push(cellTextFromTd(td));
         }
       }
       return out.length ? out : null;

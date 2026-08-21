@@ -16,16 +16,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - デプロイ … `main` へ push すると GitHub Pages（https://r-tkbyc.github.io/YokoAppCoupon/）へ自動反映
 - 拡張 … `chrome://extensions` で `YokoAppCoupon to CMS/` を「パッケージ化されていない拡張機能を読み込む」
 
-**自動テストが2つある。** 触った側は必ず流すこと。
+**自動テストが3つある。** 触った側は必ず流すこと。
 
 ```powershell
-.\tests\run.ps1        # 日時パース（index.html を触ったら）
+.\tests\run.ps1        # 日時パース（index.html の日時を触ったら）
+.\tests\paste-run.ps1  # 一括ペースト（index.html の入力欄・ペーストを触ったら）
 .\tests\cms-run.ps1    # CMS反映（cms_inject.js を触ったら／要ネットワーク）
 ```
 
 どちらも「対象ファイルを**そのまま**ヘッドレスChrome（無ければEdge）に読ませ、`--dump-dom` して `<pre id="testout">` から結果を回収する」という同じ仕組み。全通過で終了コード0。
 
 - `run.ps1` … `index.html` にテストスクリプトを差し込んだ一時HTMLを作る。新しい日時の書き方を見つけたら `tests/datetime-corpus.js` の `CORPUS` に1行足す。
+- `paste-run.ps1` … 同じ仕組みで `paste-corpus.js` を差し込む。合成 `ClipboardEvent` を `document` に流して実際のペーストハンドラを通すので、`cellsFromHtml` だけでなく `getPasteTargets` / `setFieldValue` まで一気に通る。`-Source` に別の `index.html` を渡せるので、**「このテストは本当にバグを捕まえるのか」を旧版で確かめられる**（`git show HEAD:index.html > tests\_old.html` して `-Source` に渡す）。
 - `cms-run.ps1` … `tests/cms-harness.html` が esm.sh から**本物の React + Mantine** を取ってきてCMSのフォームを模したものを組み、`chrome.runtime` をスタブして `cms_inject.js` を classic script として読ませ、`YK_COUPON_TO_CMS` を1発流す。`report` と画面の実値の両方を検証する。
   - 日時ピッカーはモックに置いていないので、公開期間／利用可能期間が `NG:欄が見つからない` になるのが**正しい**。
   - CMSのラベル文言やMantineのDOM構造の変化そのものは検出できない（モックなので）。そこは実機で `tests/cms-probe.js` を使う。
@@ -40,6 +42,7 @@ CMS側のDOM変更を疑うときは、CMSタブのコンソールに貼り付�
 
 - `tests/cms-probe.js` … 全フィールドについて、`cms_inject.js` と同じ探索ロジックでどこまで辿れるかを一覧化。ページ上の全 `<label>` と `mantine-*` クラス名も吐くので、ラベル文言の変更やMantineのバージョンアップを検出できる
 - `tests/cms-probe-numberinput.js` … NumberInput特化。注入直後／0.3秒後／1.5秒後／3.5秒後の値を記録するので、**CMS側が後から値を戻しているか**が分かる
+- `tests/clipboard-dump.html` … ペースト不具合の調査用。ブラウザで開いて Ctrl+V すると、Excelが実際に出している `text/html` / `text/plain` の生データと、ツールがそれをどう解釈するかを並べて表示する。**推測でHTMLを作文しないこと**——Excelの「ソース側での折り返し」は作文では再現できない
 
 ⚠️ 診断スクリプトは最後に自分で値を元に戻す。ユーザーに結果を読んでもらうときは、**その後始末の分を「CMSが戻した」と誤読させない**よう明示すること（実際にそう誤解された）。
 
@@ -157,7 +160,20 @@ Excel複数セルの一括ペースト（index.html 末尾のIIFE）は、対象
 
 number欄には安全装置がある（`NUM_CELL_OK`）。数字・区切り・簡単な単位以外を含むセルは**入れずに空のまま警告**する。`1階 化粧品` から数字だけ拾って `先着人数=1` になる「もっともらしい誤り」を防ぐためのもので、緩めないこと。
 
-### 9. `host_permissions` / `matches` が本番URL固定
+### 9. セル内の“本物の改行”は `<br>` だけ（`textContent` を素で使わない）
+
+`cellTextFromTd()` は `<br>` を番兵に置換してから、**残りの空白（改行・タブ・連続スペース）を1個のスペースに畳む**。HTMLの空白折り畳み規則そのままで、これが正しい。
+
+`textContent` をそのまま使ってはいけない。Excel は長いセルを**HTMLソース側で勝手に折り返して**出力するため、本文の無関係な位置に改行が入る（v1.4.1 で修正した実バグ）。
+
+```html
+<td ...>［宮脇賣扇庵］扇子ケース
+  プレゼント</td>          → 誤 "…扇子ケース\n  プレゼント"
+```
+
+1セルだけのコピーで症状が出なかったのは、その場合 `cells.length <= 1` で既定のペーストにまかせ、この経路を通らないため。**「1個なら平気、複数だとおかしい」という報告が来たら、まずHTML経路を疑う。**
+
+### 10. `host_permissions` / `matches` が本番URL固定
 
 `manifest.json` は `https://r-tkbyc.github.io/YokoAppCoupon/*` と `https://front-admin.taspapp.takashimaya.co.jp/store-coupons*` のみを対象にしている。`index.html` をローカル（`file://` や localhost）で開いても **toCMSボタンは出ない**。拡張の挙動を試すにはデプロイするか、manifest の `matches` を一時的に書き換える必要がある。
 
@@ -166,5 +182,16 @@ number欄には安全装置がある（`NUM_CELL_OK`）。数字・区切り・�
 - **CMS側は既存値を上書きしない。** フィールドごとに条件が異なる（空欄のみ／`""` or `"0"` のみ／プレースホルダのみ）。詳細は README のマッピング表。この不変条件のおかげで toCMS は冪等に再実行でき、部分的に埋まったフォームの穴埋めに使える。壊さないこと。
 - **React controlled component への入力は `setNativeValue()` 経由。** プロトタイプの value setter を取り出して呼び、`input` / `change` を bubbles で発火する。`el.value = x` の直代入では React の state が更新されない。
 - UI文言・コメント・変数名の日本語混在は既存スタイル。踏襲する。
+- ⚠️ **不可視文字はソースにリテラルで書かない。必ず `\uXXXX` エスケープで書く。** Write ツールで ` ` `​` ` ` のつもりで書いた箇所が、実体そのものとして書き込まれる事故が**3回起きている**。regex に紛れ込むと目視では絶対に気づけない。書いた直後に必ず確認すること：
+
+  ```powershell
+  $t = [System.IO.File]::ReadAllText($path)
+  foreach ($cp in 0x00, 0xA0, 0x200B) {
+    $n = ([regex]::Matches($t, [regex]::Escape([string][char]$cp))).Count
+    Write-Host ("U+{0:X4} : {1}" -f $cp, $n)
+  }
+  ```
+
+  直すときは `sed` を使わないこと。GNU sed の置換文字列では `\u` が「次の1文字を大文字化」と解釈され、**バックスラッシュが食われて壊れる**（実際に踏んだ）。PowerShell の `.Replace()` で、`'\' + 'u00a0'` のように文字列連結でエスケープ表記を組み立てるのが安全。
 - `Ignored files/` は `.gitignore` 済みの日付付きバックアップ置き場（`bk-YYYYMMDD/`）。過去バージョンの実装を参照したいときに使える。
 - コミットメッセージは `update` / `Update <filename>` 程度の運用。

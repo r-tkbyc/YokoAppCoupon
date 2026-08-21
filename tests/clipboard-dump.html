@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>クリップボード内容ダンプ</title>
+<style>
+  body{ font-family:"Segoe UI","Yu Gothic UI",sans-serif; margin:24px; line-height:1.6; color:#222; }
+  h1{ font-size:18px; }
+  h2{ font-size:15px; margin-top:28px; border-bottom:2px solid #ddd; padding-bottom:4px; }
+  #drop{ border:2px dashed #999; border-radius:10px; padding:28px; text-align:center;
+         background:#fafafa; font-size:15px; }
+  #drop:focus{ outline:3px solid #4a90d9; }
+  pre{ background:#f5f5f5; border:1px solid #ddd; border-radius:6px; padding:10px;
+       white-space:pre-wrap; word-break:break-all; font-size:12px; max-height:340px; overflow:auto; }
+  .hint{ color:#666; font-size:13px; }
+  .nl{ color:#c00; font-weight:bold; }
+  button{ font-size:14px; padding:6px 14px; }
+</style>
+</head>
+<body>
+
+<h1>クリップボード内容ダンプ</h1>
+<p class="hint">
+  Excelで<strong>複数セルを選択してコピー</strong>し、下の枠をクリックしてから <kbd>Ctrl+V</kbd> を押してください。<br>
+  Excelが実際に出力している中身と、ツールがそれをどう解釈するかを表示します。どこにも送信しません。
+</p>
+
+<div id="drop" contenteditable="true" tabindex="0">ここをクリックして Ctrl+V</div>
+
+<p><button id="copyall">結果をまとめてコピー</button> <span id="msg" class="hint"></span></p>
+
+<h2>1. text/html（生）　※ ⏎ が実際の改行位置</h2>
+<pre id="rawhtml">(まだ)</pre>
+
+<h2>2. text/plain（生）　※ ⏎ が改行、 →  がタブ</h2>
+<pre id="rawtext">(まだ)</pre>
+
+<h2>3. 現在のツールの解釈（cellsFromHtml）</h2>
+<pre id="now">(まだ)</pre>
+
+<h2>4. 修正案の解釈（HTMLの空白折り畳みを適用）</h2>
+<pre id="fixed">(まだ)</pre>
+
+<script>
+const $ = s => document.querySelector(s);
+const vis = s => String(s).replace(/\t/g, ' → ').replace(/\n/g, '⏎\n');
+
+function normalizeCell(s){
+  return String(s ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+}
+
+// ---- 現在の実装 ----
+function cellsFromHtmlNow(html){
+  if (!html || !/<t[dhr][\s>]/i.test(html)) return null;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const rows = Array.from(doc.querySelectorAll('tr'));
+  if (!rows.length) return null;
+  const out = [];
+  for (const tr of rows){
+    for (const td of Array.from(tr.querySelectorAll(':scope > td, :scope > th'))){
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+      out.push(normalizeCell(clone.textContent));
+    }
+  }
+  return out.length ? out : null;
+}
+
+// ---- 修正案：ソース中の改行は「ただの空白」として畳み、<br> だけを改行にする ----
+function cellsFromHtmlFixed(html){
+  if (!html || !/<t[dhr][\s>]/i.test(html)) return null;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const rows = Array.from(doc.querySelectorAll('tr'));
+  if (!rows.length) return null;
+  const NL = '\u0000';
+  const out = [];
+  for (const tr of rows){
+    for (const td of Array.from(tr.querySelectorAll(':scope > td, :scope > th'))){
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('br').forEach(br => br.replaceWith(NL));
+      clone.querySelectorAll('p, div').forEach(el => el.append(NL));
+      const collapsed = (clone.textContent || '').replace(/[ \t\r\n\f]+/g, ' ');
+      out.push(normalizeCell(collapsed.split(NL).map(s => s.trim()).join('\n')));
+    }
+  }
+  return out.length ? out : null;
+}
+
+const fmt = cells => cells
+  ? cells.map((c, i) => `[${i}] ${JSON.stringify(c)}`).join('\n')
+  : '(テーブルとして読めなかった)';
+
+$('#drop').addEventListener('paste', e => {
+  e.preventDefault();
+  const dt = e.clipboardData;
+  const html  = dt.getData('text/html');
+  const plain = dt.getData('text/plain');
+
+  $('#rawhtml').textContent = html ? vis(html) : '(text/html が提供されていない)';
+  $('#rawtext').textContent = plain ? vis(plain) : '(text/plain が提供されていない)';
+  $('#now').textContent   = fmt(cellsFromHtmlNow(html));
+  $('#fixed').textContent = fmt(cellsFromHtmlFixed(html));
+  $('#drop').textContent  = 'ペーストを受け取りました。下の結果を見てください（もう一度貼り直せます）';
+});
+
+$('#copyall').addEventListener('click', async () => {
+  const text = ['1. text/html（生）', $('#rawhtml').textContent,
+                '', '2. text/plain（生）', $('#rawtext').textContent,
+                '', '3. 現在のツールの解釈', $('#now').textContent,
+                '', '4. 修正案の解釈', $('#fixed').textContent].join('\n');
+  try { await navigator.clipboard.writeText(text); $('#msg').textContent = 'コピーしました'; }
+  catch (err) { $('#msg').textContent = 'コピーできませんでした。手で選択してください'; }
+});
+</script>
+</body>
+</html>
