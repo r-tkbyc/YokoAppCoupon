@@ -130,6 +130,86 @@
   check('先着人数は空（"1"を拾わない）', firstCome.value, '');
 
   say('');
+  say('■ 先着人数は文字混じりでも数字を抜き出す（v1.5.0）');
+  [
+    ['先着１００名様',  '100', false],   // 実機で報告されたセル。全角数字＋「先着」
+    ['３０名様',        '30',  false],
+    ['30人',            '30',  false],
+    ['1,000名様',       '1000', false],
+    ['各20名',          '20',  false],
+    ['限定30名',        '30',  false],
+    ['計30名様',        '30',  false],
+    ['先着30名様限定',  '30',  false],
+    ['各日先着１００名様', '100', true],  // 「各日」は欄に残さず data 属性へ
+    ['各日30名様',      '30',  true],
+  ].forEach(([cell, want, eachDay]) => {
+    clearAllFields();
+    delete firstCome.dataset.eachDay;
+    firePaste(titleIn,
+      `<table><tr><td>タイトルです</td><td>${cell}</td></tr></table>`,
+      'タイトルです' + TAB + cell);
+    check(`${cell} → ${want}`, firstCome.value, want);
+    check(`  各日フラグ ${eachDay ? 'ON' : 'OFF'}`, firstCome.dataset.eachDay === '1', eachDay);
+  });
+
+  say('');
+  say('■ 先着人数に未知の語が残るセルは入れずに空のまま（列ずれ検出）');
+  [
+    '1階 化粧品',                                  // 数字だけ拾うと「先着1名」になる
+    '［夕張あきんど屋］じゃがバタートッピング 増量プレゼント',  // 起点を1つ間違えた場合
+    '先着20名様30%OFF',                            // 連結して 2030 になるのを防ぐ
+  ].forEach(cell => {
+    clearAllFields();
+    firePaste(titleIn,
+      `<table><tr><td>タイトルです</td><td>${cell}</td></tr></table>`,
+      'タイトルです' + TAB + cell);
+    check(`${cell} → 空`, firstCome.value, '');
+  });
+
+  say('');
+  say('■ 単一セルでも number欄は肩代わりする（v1.5.0）');
+  clearAllFields();
+  delete firstCome.dataset.eachDay;
+  firePaste(firstCome, '<table><tr><td>各日先着１００名様</td></tr></table>', '各日先着１００名様');
+  check('先着人数', firstCome.value, '100');
+  check('各日フラグ ON', firstCome.dataset.eachDay === '1', true);
+
+  say('');
+  say('■ 各日フラグは次のペーストで消える（居残らない）');
+  firePaste(firstCome, '<table><tr><td>先着50名様</td></tr></table>', '先着50名様');
+  check('先着人数', firstCome.value, '50');
+  check('各日フラグ OFF', firstCome.dataset.eachDay === '1', false);
+
+  say('');
+  say('■ タイトルへの反映（※各日先着xx名様）');
+  clearAllFields();
+  delete firstCome.dataset.eachDay;
+  firePaste(titleIn,
+    '<table><tr><td>テストタイトル</td><td>各日先着１００名様</td></tr></table>',
+    'テストタイトル' + TAB + '各日先着１００名様');
+  $('.set[data-set="title"] .btn-convert').click();
+  check('出力タイトル', $('.set[data-set="title"] .output-title').value, 'テストタイトル※各日先着100名様');
+  check('全体で利用可能な回数', $('#overallTotal').value, '100');
+
+  clearAllFields();
+  delete firstCome.dataset.eachDay;
+  firePaste(titleIn,
+    '<table><tr><td>テストタイトル</td><td>先着１００名様</td></tr></table>',
+    'テストタイトル' + TAB + '先着１００名様');
+  $('.set[data-set="title"] .btn-convert').click();
+  check('各日なしは従来どおり', $('.set[data-set="title"] .output-title').value, 'テストタイトル※先着100名様');
+
+  say('');
+  say('■ 各日フラグのクリアは isTrusted で切り分ける');
+  // 手入力（isTrusted:true）で落とす仕掛けだが、合成イベントでは isTrusted を
+  // 立てられないので、ここで確かめられるのは「ペースト側の合成イベントで
+  // 自分が立てたフラグを自分で消さない」側だけ。手入力側は実機で確認する。
+  firstCome.dataset.eachDay = '1';
+  firstCome.value = '20';
+  firstCome.dispatchEvent(new Event('input', { bubbles:true }));
+  check('合成イベントでは落ちない', firstCome.dataset.eachDay === '1', true);
+
+  say('');
   say('■ 起点をずらしても順に流し込む');
   clearAllFields();
   firePaste(floorIn,
