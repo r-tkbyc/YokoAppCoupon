@@ -90,6 +90,7 @@
   const titleIn  = $('.set[data-set="title"] .input');
   const firstCome = $('#firstCome');
   const floorIn  = $('.set[data-set="floor-brand"] .input-floor');
+  const chip     = $('#eachDayChip');
 
   say('=== Excel複数セルの一括ペースト ===');
   say('');
@@ -200,14 +201,38 @@
   check('各日なしは従来どおり', $('.set[data-set="title"] .output-title').value, 'テストタイトル※先着100名様');
 
   say('');
-  say('■ 各日フラグのクリアは isTrusted で切り分ける');
-  // 手入力（isTrusted:true）で落とす仕掛けだが、合成イベントでは isTrusted を
-  // 立てられないので、ここで確かめられるのは「ペースト側の合成イベントで
-  // 自分が立てたフラグを自分で消さない」側だけ。手入力側は実機で確認する。
-  firstCome.dataset.eachDay = '1';
-  firstCome.value = '20';
+  say('■ 各日は人数を手で打ち直しても落ちない（v1.6.0で方針変更）');
+  // v1.5.0 は「見えない状態を居残らせない」ために手入力で落としていたが、
+  // チップで見えるようになったので外した。残していると
+  // 「チップをONにしてから人数を打つ」が即座に無効化されて使えない。
+  clearAllFields();
+  delete firstCome.dataset.eachDay;
+  firePaste(firstCome, '<table><tr><td>各日先着１００名様</td></tr></table>', '各日先着１００名様');
+  firstCome.value = '50';
   firstCome.dispatchEvent(new Event('input', { bubbles:true }));
-  check('合成イベントでは落ちない', firstCome.dataset.eachDay === '1', true);
+  check('各日フラグは残る', firstCome.dataset.eachDay === '1', true);
+
+  say('');
+  say('■ チップのクリックで切り替わる（v1.6.0）');
+  if (!chip){
+    check('#eachDayChip が存在する', false, true);
+  } else {
+    delete firstCome.dataset.eachDay;
+    chip.click();
+    check('クリックでON', firstCome.dataset.eachDay === '1', true);
+    check('  見た目も連動', chip.getAttribute('aria-pressed'), 'true');
+    chip.click();
+    check('もう一度でOFF', firstCome.dataset.eachDay === '1', false);
+    check('  見た目も連動', chip.getAttribute('aria-pressed'), 'false');
+  }
+
+  say('');
+  say('■ 右上バッジのクリアで各日も落ちる（v1.6.0）');
+  firstCome.value = '100';
+  firstCome.dataset.eachDay = '1';
+  $('#ver').click();
+  check('先着人数', firstCome.value, '');
+  check('各日フラグ', firstCome.dataset.eachDay === '1', false);
 
   say('');
   say('■ 起点をずらしても順に流し込む');
@@ -220,9 +245,23 @@
 
   clearAllFields();
 
-  say('');
-  say(fail === 0 ? '>>> 全パス' : `>>> 失敗 ${fail} 件`);
+  // ペースト経路のチップ追従は MutationObserver 任せ（クリック経路と違って同期に
+  // 更新されない）。microtask を1つ空けてから確認するため、ここだけ非同期にする。
+  delete firstCome.dataset.eachDay;
+  firePaste(firstCome, '<table><tr><td>各日先着１００名様</td></tr></table>', '各日先着１００名様');
 
-  const pre = document.getElementById('testout');
-  if (pre) pre.textContent = out.join(NL);
+  setTimeout(() => {
+    say('');
+    say('■ ペースト経路でもチップが追従する（MutationObserver）');
+    check('aria-pressed', chip ? chip.getAttribute('aria-pressed') : '(チップなし)', 'true');
+
+    clearAllFields();
+    delete firstCome.dataset.eachDay;
+
+    say('');
+    say(fail === 0 ? '>>> 全パス' : `>>> 失敗 ${fail} 件`);
+
+    const pre = document.getElementById('testout');
+    if (pre) pre.textContent = out.join(NL);
+  }, 0);
 })();
