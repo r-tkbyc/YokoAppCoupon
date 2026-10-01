@@ -250,10 +250,210 @@
   delete firstCome.dataset.eachDay;
   firePaste(firstCome, '<table><tr><td>各日先着１００名様</td></tr></table>', '各日先着１００名様');
 
-  setTimeout(() => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const toastEl = $('#toast');
+
+  (async () => {
+    await tick();
+
     say('');
     say('■ ペースト経路でもチップが追従する（MutationObserver）');
     check('aria-pressed', chip ? chip.getAttribute('aria-pressed') : '(チップなし)', 'true');
+
+    // ===============================================================
+    // タイトルの「※先着○名様」を先着人数欄へ移す（v1.7.0）
+    //
+    // 抽出は setTimeout(0) で走るので、どのケースも task を1つ空けてから見る。
+    // ===============================================================
+
+    // 単一セルのペーストはブラウザ既定の挿入にまかせている。合成 ClipboardEvent
+    // では既定動作が走らず本文が入らないので、既定挿入が済んだ状態を先に作って
+    // から同じ task 境界を踏ませる。
+    async function titlePasted(text){
+      clearAllFields();
+      delete firstCome.dataset.eachDay;
+      titleIn.value = text;
+      firePaste(titleIn, '<table><tr><td>' + text + '</td></tr></table>', text);
+      await tick();
+    }
+
+    // タイトル＋先着人数の2セル一括ペースト（こちらは同期で流し込まれる）
+    async function bulkPasted(title, num){
+      clearAllFields();
+      delete firstCome.dataset.eachDay;
+      firePaste(titleIn,
+        '<table><tr><td>' + title + '</td><td>' + num + '</td></tr></table>',
+        title + TAB + num);
+      await tick();
+    }
+
+    say('');
+    say('=== タイトルの「※先着○名様」を先着人数欄へ移す（v1.7.0） ===');
+
+    say('');
+    say('■ 基本');
+    await titlePasted('［A］フェア※先着50名様');
+    check('先着人数へ移る', firstCome.value, '50');
+    check('タイトルから消える', titleIn.value, '［A］フェア');
+    check('各日はOFF', firstCome.dataset.eachDay === '1', false);
+
+    say('');
+    say('■ 各日つきは data-each-day へ');
+    await titlePasted('［A］フェア※各日先着100名様');
+    check('先着人数', firstCome.value, '100');
+    check('各日ON', firstCome.dataset.eachDay === '1', true);
+    check('タイトル', titleIn.value, '［A］フェア');
+
+    say('');
+    say('■ 表記ゆれ');
+    await titlePasted('［A］フェア 先着30名');
+    check('印なし・様なし', firstCome.value, '30');
+    check('  タイトル', titleIn.value, '［A］フェア');
+
+    await titlePasted('［A］フェア※先着１００名様');
+    check('全角数字', firstCome.value, '100');
+
+    await titlePasted('［A］フェア※先着1,000名様');
+    check('カンマ区切り', firstCome.value, '1000');
+
+    await titlePasted('［A］フェア※先着50名様限り');
+    check('後置き語は丸ごと消える', firstCome.value, '50');
+    check('  タイトル', titleIn.value, '［A］フェア');
+
+    await titlePasted('［A］フェア※50名様限定');
+    check('先着なし（限定が手がかり）', firstCome.value, '50');
+
+    await titlePasted('［A］フェア※各日100名様');
+    check('先着なし（各日が手がかり）', firstCome.value, '100');
+    check('  各日ON', firstCome.dataset.eachDay === '1', true);
+
+    say('');
+    say('■ 文中にあっても抜ける（前後の空白は整える）');
+    await titlePasted('※先着50名様 ［A］フェア');
+    check('先着人数', firstCome.value, '50');
+    check('タイトル', titleIn.value, '［A］フェア');
+
+    say('');
+    say('■ ★人数が未定（ダミー記号）は人数を入れずタイトルに残す');
+    await titlePasted('［A］フェア※先着〇〇名様');
+    check('欄は空のまま', firstCome.value, '');
+    check('タイトルはそのまま流す', titleIn.value, '［A］フェア※先着〇〇名様');
+    check('各日もOFFのまま', firstCome.dataset.eachDay === '1', false);
+
+    await titlePasted('［A］フェア※先着0名様');
+    check('0名も触らない', firstCome.value, '');
+    check('  タイトルはそのまま', titleIn.value, '［A］フェア※先着0名様');
+
+    say('');
+    say('■ ★ダミーでも「各日」は確定情報なので拾う');
+    // 後から人数を手打ちすると「各日の人数」になるため、各日だけ先に立てておく。
+    await titlePasted('［A］フェア※各日先着〇〇名様');
+    check('各日ON', firstCome.dataset.eachDay === '1', true);
+    check('  人数は未定のまま', firstCome.value, '');
+    check('  ダミー表記は残る', titleIn.value, '［A］フェア※各日先着〇〇名様');
+
+    say('');
+    say('■ ★人数を手打ちするとダミー表記が片付く（二重付加を防ぐ）');
+    firstCome.value = '50';
+    firstCome.dispatchEvent(new Event('input', { bubbles:true }));
+    await tick();
+    check('ダミーが消える', titleIn.value, '［A］フェア');
+    check('  各日は残る', firstCome.dataset.eachDay === '1', true);
+    $('.set[data-set="title"] .btn-convert').click();
+    check('  出力は各日の人数になる', $('.set[data-set="title"] .output-title').value, '［A］フェア※各日先着50名様');
+
+    say('');
+    say('■ ダミーの記号ゆれ');
+    for (const dummy of ['○○', '◯◯', '△△', 'XX', '＿＿', '??']){
+      await titlePasted('［A］フェア※各日先着' + dummy + '名様');
+      check(dummy + ' → 各日ON・人数未定',
+            (firstCome.dataset.eachDay === '1') && firstCome.value === '', true);
+    }
+
+    say('');
+    say('■ 2セル一括：ダミータイトル＋Excelの先着人数');
+    await bulkPasted('［A］フェア※各日先着〇〇名様', '50');
+    check('人数はExcelの値', firstCome.value, '50');
+    check('  各日はタイトルから拾う', firstCome.dataset.eachDay === '1', true);
+    check('  ダミー表記は片付く', titleIn.value, '［A］フェア');
+
+    say('');
+    say('■ ★手がかり語（先着/各日/限定）が無いものは拾わない');
+    await titlePasted('［A］フェア※20名以上の団体様は要予約');
+    check('欄は空のまま', firstCome.value, '');
+    check('タイトルはそのまま', titleIn.value, '［A］フェア※20名以上の団体様は要予約');
+
+    await titlePasted('［A］フェア※20名様');
+    check('数字＋名様だけでは拾わない', firstCome.value, '');
+
+    await titlePasted('［A］フェア※各日20名以上');
+    check('各日があっても「以上」が続けば拾わない', firstCome.value, '');
+    check('  タイトルはそのまま', titleIn.value, '［A］フェア※各日20名以上');
+
+    say('');
+    say('■ ★2つ以上あるときは自動入力しない');
+    await titlePasted('※先着50名様 ［A］フェア ※先着30名様');
+    check('欄は空のまま', firstCome.value, '');
+    check('タイトルもそのまま', titleIn.value, '※先着50名様 ［A］フェア ※先着30名様');
+    check('名指しで知らせる', /自動入力しませんでした/.test(toastEl.textContent || ''), true);
+
+    say('');
+    say('■ ★2セル一括ペースト：先着人数欄が優位（Excelの専用列を正とする）');
+    await bulkPasted('［A］フェア※先着50名様', '50');
+    check('一致：値はそのまま', firstCome.value, '50');
+    check('  タイトルから消える', titleIn.value, '［A］フェア');
+    check('  食い違いの警告は出さない', /優先しました/.test(toastEl.textContent || ''), false);
+
+    await bulkPasted('［A］フェア※先着50名様', '30');
+    check('不一致：Excelの先着人数が勝つ', firstCome.value, '30');
+    check('  タイトルからは消える（二重付加を防ぐ）', titleIn.value, '［A］フェア');
+    check('  黙って捨てず警告する', /先着人数欄の30名を優先/.test(toastEl.textContent || ''), true);
+
+    $('.set[data-set="title"] .btn-convert').click();
+    check('  出力は欄の値で組まれる', $('.set[data-set="title"] .output-title').value, '［A］フェア※先着30名様');
+
+    say('');
+    say('■ ★手入力済みの欄もタイトルでは上書きしない');
+    clearAllFields();
+    delete firstCome.dataset.eachDay;
+    firstCome.value = '20';
+    titleIn.value = '［A］フェア※先着50名様';
+    firePaste(titleIn, '<table><tr><td>［A］フェア※先着50名様</td></tr></table>', '［A］フェア※先着50名様');
+    await tick();
+    check('欄は手入力の20のまま', firstCome.value, '20');
+    check('  タイトルからは消える', titleIn.value, '［A］フェア');
+
+    say('');
+    say('■ 「各日」は欄が優位でも足りなければ足す（落とさない）');
+    // 数値欄は「各日」を持てないので、Excelの先着人数列が素の「100」でも
+    // タイトル側にだけ書かれていることがある。
+    clearAllFields();
+    delete firstCome.dataset.eachDay;
+    firstCome.value = '100';
+    titleIn.value = '［A］フェア※各日先着100名様';
+    firePaste(titleIn, '<table><tr><td>［A］フェア※各日先着100名様</td></tr></table>', '［A］フェア※各日先着100名様');
+    await tick();
+    check('各日が立つ', firstCome.dataset.eachDay === '1', true);
+    check('  人数は欄のまま', firstCome.value, '100');
+
+    // 逆向き（欄はON・タイトルに各日なし）では落とさない
+    clearAllFields();
+    firstCome.value = '100';
+    firstCome.dataset.eachDay = '1';
+    titleIn.value = '［A］フェア※先着100名様';
+    firePaste(titleIn, '<table><tr><td>［A］フェア※先着100名様</td></tr></table>', '［A］フェア※先着100名様');
+    await tick();
+    check('タイトルに各日が無くても落とさない', firstCome.dataset.eachDay === '1', true);
+
+    say('');
+    say('■ 変換すると末尾に正規形で付け直される');
+    await titlePasted('［A］フェア 先着30名');
+    $('.set[data-set="title"] .btn-convert').click();
+    check('出力（タイトル）', $('.set[data-set="title"] .output-title').value, '［A］フェア※先着30名様');
+
+    await titlePasted('［A］フェア※各日先着100名様');
+    $('.set[data-set="title"] .btn-convert').click();
+    check('各日も復活する', $('.set[data-set="title"] .output-title').value, '［A］フェア※各日先着100名様');
 
     clearAllFields();
     delete firstCome.dataset.eachDay;
@@ -263,5 +463,5 @@
 
     const pre = document.getElementById('testout');
     if (pre) pre.textContent = out.join(NL);
-  }, 0);
+  })();
 })();

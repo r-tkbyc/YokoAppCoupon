@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Text Formatter v1.6.0 - 2026-09-11 -->
-  <meta name="app-version" content="v1.6.0">
+  <!-- Text Formatter v1.7.0 - 2026-10-01 -->
+  <meta name="app-version" content="v1.7.0">
 
   <title>YokoAppCoupon流し込みツール</title>
   <style>
@@ -512,8 +512,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-  const APP_VERSION = "v1.6.0";
-  const APP_BUILD = "2026-09-11";
+  const APP_VERSION = "v1.7.0";
+  const APP_BUILD = "2026-10-01";
   const PRICE_SPACE_RULE_ENABLED = false;
 
   // 日時設定：基準年の初期値（今年は2026）
@@ -1076,12 +1076,36 @@
           wy = startDt.getFullYear() - 1;
         }
 
-        pubStartDt = makeDate(wy, pWish.month, pWish.day,
-                              pWish.hasTime ? pWish.hour : 17, pWish.hasTime ? pWish.minute : 0);
+        // 配布希望に時刻の指定が無く、開始日時と同じ日なら、既定の 17:00 ではなく
+        // 利用可能期間/開始と同じ時刻にそろえる。17:00 のままだと同日公開のときに
+        // 公開が利用開始より7時間後になり、開始直後に使えない時間ができてしまう。
+        //
+        // ★比べるのは年寄せ後の日付。年なし入力では wy が開始側から来るので、
+        //   pWish.year を直接見ると「年が無いから別日」と誤判定する。
+        const wishSameDayAsStart = !!startDt
+          && wy === startDt.getFullYear()
+          && pWish.month === startDt.getMonth() + 1
+          && pWish.day === startDt.getDate();
+
+        const wishHour = pWish.hasTime ? pWish.hour
+                       : (wishSameDayAsStart ? startDt.getHours()   : 17);
+        const wishMin  = pWish.hasTime ? pWish.minute
+                       : (wishSameDayAsStart ? startDt.getMinutes() : 0);
+
+        pubStartDt = makeDate(wy, pWish.month, pWish.day, wishHour, wishMin);
       } else if (startDt && !(dtWishIn && (dtWishIn.value || "").trim())){
         pubStartDt = new Date(startDt.getTime());
         pubStartDt.setDate(pubStartDt.getDate() - 1);
         pubStartDt.setHours(17,0,0,0);
+      }
+
+      // 公開開始が利用開始より後だと、開始直後にクーポンが使えない時間ができる。
+      // 上の同日ルールは時刻が書かれていないときだけ働くので、ここに残るのは
+      // 「時刻が明記されていて、それが利用開始より遅い」ケース。書いた値を
+      // 勝手に動かさず名指しで知らせる。
+      if (pubStartDt && startDt && dtWishIn
+          && pubStartDt.getTime() > startDt.getTime()){
+        issues.push({ el: dtWishIn, label: '配布希望日時', kind: 'late' });
       }
 
       // 反映
@@ -1135,10 +1159,12 @@
       // 日時が読めなかった欄は黙って空にせず、名指しで知らせる
       const ng = dtIssues.filter(i => i.kind === 'ng').map(i => i.label);
       const tm = dtIssues.filter(i => i.kind === 'time').map(i => i.label);
-      if (ng.length || tm.length){
+      const lt = dtIssues.filter(i => i.kind === 'late').map(i => i.label);
+      if (ng.length || tm.length || lt.length){
         let msg = '変換しました';
         if (ng.length) msg += `／日時が読み取れません：${ng.join('・')}`;
         if (tm.length) msg += `／時刻が読めず既定値を使用：${tm.join('・')}`;
+        if (lt.length) msg += `／公開開始が利用開始より遅い：${lt.join('・')}`;
         toast(msg, 5000);
       } else {
         toast('変換しました');
@@ -1448,6 +1474,187 @@
       if (rejected.length)  msg += `／数値でないため未入力：${rejected.join('・')}`;
       toast(msg, rejected.length || dropped ? 3600 : 1200);
     });
+  })();
+
+  // =============================
+  //  タイトルの「※先着○名様」を先着人数欄へ移す
+  // =============================
+  // 担当者はタイトル本文に ※各日先着100名様 まで書き込んでくる。欄へ移さないと
+  // CMSの先着人数が空のまま入稿されるので、ペースト直後に抜き出して欄へ送り、
+  // タイトル側からは取り除く。
+  //
+  // 取り除いても損はしない：変換時に buildTitleResult() が欄の値から
+  // ※{各日}先着{n}名様 を組み直して末尾に付け直すので、先着100名 や 先着１００名様
+  // といった表記ゆれが ※先着100名様 に正規化される。
+  // つまり最終的に出力へ出るのは常に「先着人数欄の値」。
+  //
+  // ★人数が未定のときは担当者が ※各日先着〇〇名様 のようにダミーの記号を入れてくる。
+  //   人数は欄に入れず、ダミー表記もタイトルに残してそのまま出力へ流す（「未定」の
+  //   印を消さないため）。ただし「各日」は人数が未定でも確定した情報なので拾う——
+  //   後から人数を手打ちしたとき、それは「各日の人数」になるため。
+  //   残したダミー表記は、先着人数が決まった時点で片付ける（下の watchFirstCome）。
+  (function(){
+    const titleSet  = document.querySelector('.set[data-set="title"]');
+    const titleIn   = titleSet?.querySelector('.input');
+    const firstCome = document.getElementById('firstCome');
+    if (!titleIn || !firstCome) return;
+
+    // ［印］［各日］［先着］［人数スロット］［名/名様］［後置き語］
+    //   ※各日先着100名様 / ※先着50名様 / 先着50名 / ※各日100名様 / ※50名様限定
+    //
+    // 人数スロットは「数字」か「ダミー記号」。どちらが入ったかで扱いが変わるので、
+    // 1本の正規表現で拾って後で振り分ける（2本に分けると「数字とダミーが両方ある」
+    // ような入力で取りこぼしが出る）。
+    //
+    // 後置き語は許可リスト。リスト外の文字が来たらそこで打ち切るので、
+    // 「※先着50名様 ※全店共通」の後ろの注記まで巻き込んで消すことはない。
+    const FC_NUM   = '[0-9０-９][0-9０-９,，]*';
+    const FC_DUMMY = '[〇○◯●△▲▽□■×✕xXｘＸ＿_？?*＊]{1,4}';
+    const FC_RE = new RegExp(
+      '[※*＊]?\\s*(各日)?\\s*(?:先着順|先着)?\\s*(' + FC_NUM + '|' + FC_DUMMY + ')'
+      + '\\s*名\\s*様?(?:\\s*(?:限り|まで|のみ|限定|先着順))*',
+      'g'
+    );
+
+    // 数字の前後に手がかり語が1つも無いものは拾わない。これが無いと
+    // 「※20名以上の団体様は…」のような注記から数字を引っ張ってきて、
+    // 先着人数=20 という「もっともらしい誤り」が静かに通る。
+    const FC_CUE = /各日|先着|限定/;
+
+    // 「各日」だけを手がかりにすると ※各日20名以上 まで通ってしまう。
+    // 人数の意味を反転させる語が直後に続くものは手を出さない。
+    const FC_DENY_NEXT = /^[以程超未]/;   // 以上/以下・程度・超・未満
+
+    function findHits(text){
+      const hits = [];
+      FC_RE.lastIndex = 0;
+      let m;
+      while ((m = FC_RE.exec(text)) !== null){
+        if (m[0] === ''){ FC_RE.lastIndex++; continue; }
+        if (!FC_CUE.test(m[0])) continue;
+        if (FC_DENY_NEXT.test(text.slice(m.index + m[0].length))) continue;
+
+        const slot = m[2];
+        const hit  = { text: m[0], index: m.index, eachDay: !!m[1] };
+
+        if (/[0-9０-９]/.test(slot)){
+          const n = Number(toHalfDigits(slot).replace(/[,，]/g, ''));
+          if (!Number.isFinite(n) || n < 1) continue;   // 0名・読めない数字は触らない
+          hits.push({ ...hit, kind: 'num', n });
+        } else {
+          hits.push({ ...hit, kind: 'dummy', n: 0 });    // 人数未定
+        }
+      }
+      return hits;
+    }
+
+    // 指定のヒットを本文から取り除き、空いた空白を整える
+    function stripHits(text, hits){
+      let s = text;
+      [...hits].sort((a, b) => b.index - a.index)       // 後ろから消してindexを保つ
+        .forEach(h => { s = s.slice(0, h.index) + s.slice(h.index + h.text.length); });
+      return s.replace(/[ 　]{2,}/g, ' ').replace(/[ 　]+$/gm, '').trim();
+    }
+
+    // 「各日」は人数が未定でも確定した情報なので、足りなければ足す。
+    // 落とすことはしない（担当者が書いた「各日」が黙って消えるのを避ける）。
+    function raiseEachDay(hits){
+      if (firstCome.dataset.eachDay === '1') return false;
+      if (!hits.some(h => h.eachDay)) return false;
+      firstCome.dataset.eachDay = '1';
+      return true;
+    }
+
+    function apply(){
+      const before = titleIn.value || '';
+      const hits   = findHits(before);
+      if (!hits.length) return;
+
+      const numHits   = hits.filter(h => h.kind === 'num');
+      const dummyHits = hits.filter(h => h.kind === 'dummy');
+
+      // 人数が未定（ダミー記号）だけのとき。欄には入れず、ダミー表記も残す。
+      // 「各日」だけ拾っておく——後から人数を手打ちすると各日の人数になるため。
+      if (!numHits.length){
+        if (raiseEachDay(dummyHits)){
+          toast('人数は未定のまま「各日」をONにしました（人数を入れると表記を片付けます）', 4200);
+        }
+        return;
+      }
+
+      // 2つ以上あるときはどちらが人数なのか決められない。黙って片方を採らない。
+      if (numHits.length > 1){
+        toast(`先着人数の表記が${numHits.length}個あるため自動入力しませんでした：`
+            + numHits.map(h => h.text.trim()).join('・'), 5000);
+        return;
+      }
+
+      const hit = numHits[0];
+
+      // ★先着人数欄が優位。欄に人数が入っていればタイトル側の数字で上書きしない。
+      //   2セル一括ペースト（タイトル＋先着人数）では Excel の専用列がここに入って
+      //   いるので、そちらを正とする。食い違ったときは黙って捨てず名指しで知らせる。
+      const prevNum = Number(String(firstCome.value || '').replace(/[^\d]/g, ''));
+      const hasPrev = Number.isFinite(prevNum) && prevNum >= 1;
+
+      // ★タイトル側を先に畳むこと。欄の値が勝った場合でも取り除く（残すと変換時の
+      //   自動付加と二重になる＝※先着50名様※先着30名様）。ダミー表記も人数が
+      //   決まった以上は畳む。
+      //
+      //   順序が要：先着人数欄へ input を流すと watchFirstCome が走ってタイトルを
+      //   書き換えるため、タイトルを後から書くと stale な index で上書きしてしまう。
+      titleIn.value = stripHits(before, hits);
+      titleIn.dispatchEvent(new Event('input', { bubbles:true }));
+
+      if (!hasPrev){
+        // 欄が空なら、抜き出した文字列を真実として人数と「各日」の両方を決める。
+        // 「各日」はどのヒットに付いていても拾う（タイトルにあれば確実に各日）。
+        firstCome.value = String(hit.n);
+        if (hits.some(h => h.eachDay)) firstCome.dataset.eachDay = '1';
+        else delete firstCome.dataset.eachDay;
+        firstCome.dispatchEvent(new Event('input',  { bubbles:true }));
+        firstCome.dispatchEvent(new Event('change', { bubbles:true }));
+      } else {
+        raiseEachDay(hits);
+      }
+
+      if (!hasPrev){
+        toast(`先着人数へ移しました：${hit.eachDay ? '各日' : ''}${hit.n}名`, 1800);
+      } else if (prevNum !== hit.n){
+        toast(`先着人数欄の${prevNum}名を優先しました（タイトルは${hit.n}名）`
+            + `／タイトルの表記は削除`, 5000);
+      } else {
+        toast(`タイトルの先着表記を削除しました（先着人数 ${prevNum}名）`, 1800);
+      }
+    }
+
+    // 人数が決まった時点で、タイトルに残したダミー表記（※各日先着〇〇名様）を片付ける。
+    // これが無いと、変換時の自動付加と合わせて
+    // 「※各日先着〇〇名様※各日先着50名様」と二重になる。
+    //
+    // ペースト経路（setFieldValue）も input を発火するので、2セル一括貼りでは
+    // apply() より先にここが走る。先に走った側が「各日」も拾うようにしてあるので
+    // どちらが勝っても結果は同じ（raiseEachDay は冪等）。
+    function watchFirstCome(){
+      const n = Number(String(firstCome.value || '').replace(/[^\d]/g, ''));
+      if (!Number.isFinite(n) || n < 1) return;
+
+      const dummyHits = findHits(titleIn.value || '').filter(h => h.kind === 'dummy');
+      if (!dummyHits.length) return;
+
+      raiseEachDay(dummyHits);
+      titleIn.value = stripHits(titleIn.value || '', dummyHits);
+      titleIn.dispatchEvent(new Event('input', { bubbles:true }));
+    }
+
+    firstCome.addEventListener('input',  watchFirstCome);
+    firstCome.addEventListener('change', watchFirstCome);
+
+    // 単一セルのペーストはブラウザ既定の挿入にまかせているため、挿入が済んでから
+    // 読む必要がある。task を1つ空ければ既定動作の後になる。
+    // 一括ペースト経路（document の paste ハンドラ）は同期で流し込むので、
+    // この task が走る時点では先着人数欄まで埋まり終わっている。
+    titleIn.addEventListener('paste', () => { setTimeout(apply, 0); });
   })();
   </script>
 </body>
